@@ -30,6 +30,8 @@
 # [app.detect] — how to find the installed version (defaults to "managed"):
 #   type = "registry"  display_name = "<regex on Uninstall DisplayName>",
 #                      version_regex = "<optional, capture group 1 = version from DisplayVersion>"
+#   type = "file"      paths = ['<glob for the exe>', ...]  first match wins; version is read
+#                      from the exe, and zip/portable updates go into that exe's folder
 #   type = "managed"   Restock records the version it installed (for zip/portable)
 
 [[app]]
@@ -88,7 +90,12 @@ name = "EVE-APM Preview"
 description = "EVE Online client thumbnails and hotkey switching (portable)"
 source = { type = "github", repo = "mrmjstc/eve-apm-preview", asset = '^EVEAPMPreview-v[\d.]+\.zip$' }
 # The zip holds only the exe; profiles/ is created at runtime and survives updates.
+# `dest` is only used for fresh installs; existing copies are updated in place.
 installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\EVEAPMPreview', strip_root = true }
+detect = { type = "file", paths = [
+    '%USERPROFILE%\Documents\EVEAPMPreview*\EVEAPMPreview\EVEAPMPreview.exe',
+    '%LOCALAPPDATA%\Programs\EVEAPMPreview\EVEAPMPreview.exe',
+] }
 
 [[app]]
 id = "brave"

@@ -5,11 +5,10 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
-use regex::{Captures, Regex};
 use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
 
-use crate::catalog::Installer;
+use crate::catalog::{Installer, expand_env};
 use crate::source::Release;
 
 const ERROR_ELEVATION_REQUIRED: i32 = 740;
@@ -58,7 +57,12 @@ pub fn download(
     Ok(path)
 }
 
-pub fn install(installer: &Installer, file: &Path) -> Result<()> {
+/// Runs the installer. Zip and portable apps go into `existing` (the folder
+/// they were detected in) when known, otherwise into the catalog's `dest`.
+pub fn install(installer: &Installer, file: &Path, existing: Option<&Path>) -> Result<()> {
+    let dest = |configured: &str| {
+        existing.map_or_else(|| PathBuf::from(expand_env(configured)), Path::to_path_buf)
+    };
     match installer {
         Installer::Exe { args } => run(Command::new(file).args(args)),
         Installer::Msi { args } => run(Command::new("msiexec")
@@ -66,9 +70,15 @@ pub fn install(installer: &Installer, file: &Path) -> Result<()> {
             .arg(file)
             .args(["/qn", "/norestart"])
             .args(args)),
-        Installer::Zip { dest, strip_root } => extract_zip(file, &expand_env(dest), *strip_root),
-        Installer::Portable { dest, file_name } => {
-            let dest = expand_env(dest);
+        Installer::Zip {
+            dest: configured,
+            strip_root,
+        } => extract_zip(file, &dest(configured), *strip_root),
+        Installer::Portable {
+            dest: configured,
+            file_name,
+        } => {
+            let dest = dest(configured);
             fs::create_dir_all(&dest)?;
             let name = match file_name {
                 Some(name) => name.as_ref(),
@@ -126,10 +136,42 @@ fn extract_zip(file: &Path, dest: &Path, strip_root: bool) -> Result<()> {
     Ok(())
 }
 
-fn expand_env(s: &str) -> PathBuf {
-    let re = Regex::new(r"%([^%]+)%").expect("static regex");
-    let expanded = re.replace_all(s, |c: &Captures| {
-        std::env::var(&c[1]).unwrap_or_else(|_| c[0].to_owned())
-    });
-    PathBuf::from(expanded.into_owned())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn zip_update_goes_into_detected_folder_and_keeps_other_files() {
+        let root = std::env::temp_dir().join(format!("restock-test-{}", std::process::id()));
+        let existing = root
+            .join("Documents")
+            .join("EVEAPMPreview-v0.9.1")
+            .join("EVEAPMPreview");
+        fs::create_dir_all(existing.join("profiles")).unwrap();
+        fs::write(existing.join("EVEAPMPreview.exe"), "old").unwrap();
+        fs::write(existing.join("profiles").join("primary.ini"), "mine").unwrap();
+
+        // Same shape as the release zip: a single root folder holding the exe.
+        let archive = root.join("EVEAPMPreview-v0.9.9.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("EVEAPMPreview/EVEAPMPreview.exe", options)
+            .unwrap();
+        zip.write_all(b"new").unwrap();
+        zip.finish().unwrap();
+
+        let installer = Installer::Zip {
+            dest: root.join("fresh").display().to_string(),
+            strip_root: true,
+        };
+        install(&installer, &archive, Some(&existing)).unwrap();
+
+        let read = |p: PathBuf| fs::read_to_string(p).unwrap();
+        assert_eq!(read(existing.join("EVEAPMPreview.exe")), "new");
+        assert_eq!(read(existing.join("profiles").join("primary.ini")), "mine");
+        assert!(!root.join("fresh").exists());
+        fs::remove_dir_all(&root).unwrap();
+    }
 }

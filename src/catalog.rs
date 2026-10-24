@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
-use regex::Regex;
+use regex::{Captures, Regex};
 use serde::Deserialize;
 
 const CATALOG_TOML: &str = include_str!("../catalog.toml");
@@ -110,8 +110,20 @@ pub enum Detect {
         #[serde(default)]
         version_regex: Option<String>,
     },
+    /// Glob patterns for the app's exe, in priority order; the first match is
+    /// the install, and zip/portable updates go into its folder.
+    File { paths: Vec<String> },
     #[default]
     Managed,
+}
+
+/// Expands `%VAR%` references from the environment, leaving unknown ones as-is.
+pub fn expand_env(s: &str) -> String {
+    let re = Regex::new(r"%([^%]+)%").expect("static regex");
+    re.replace_all(s, |c: &Captures| {
+        std::env::var(&c[1]).unwrap_or_else(|_| c[0].to_owned())
+    })
+    .into_owned()
 }
 
 pub fn load() -> Result<Catalog> {
@@ -139,13 +151,24 @@ fn parse(text: &str) -> Result<Catalog> {
             Source::Redirect { version_regex, .. } => patterns.push(version_regex),
             Source::Manifest { .. } | Source::LastModified { .. } | Source::Direct { .. } => {}
         }
-        if let Detect::Registry {
-            display_name,
-            version_regex,
-        } = &app.detect
-        {
-            patterns.push(display_name);
-            patterns.extend(version_regex);
+        match &app.detect {
+            Detect::Registry {
+                display_name,
+                version_regex,
+            } => {
+                patterns.push(display_name);
+                patterns.extend(version_regex);
+            }
+            Detect::File { paths } => {
+                if paths.is_empty() {
+                    bail!("app `{}`: file detection needs at least one path", app.id);
+                }
+                for p in paths {
+                    glob::Pattern::new(p)
+                        .with_context(|| format!("app `{}`: invalid path pattern `{p}`", app.id))?;
+                }
+            }
+            Detect::Managed => {}
         }
         for p in patterns {
             Regex::new(p).with_context(|| format!("app `{}`: invalid regex `{p}`", app.id))?;

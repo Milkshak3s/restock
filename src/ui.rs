@@ -1,9 +1,11 @@
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use eframe::egui::{self, Color32, RichText};
 
 use crate::catalog::{AppEntry, Catalog};
+use crate::detect::Installed;
 use crate::source::{self, Release};
 use crate::state::State;
 use crate::{detect, install, version};
@@ -11,7 +13,7 @@ use crate::{detect, install, version};
 const GOOD: Color32 = Color32::from_rgb(90, 180, 110);
 
 enum Msg {
-    Detected(Vec<Option<String>>),
+    Detected(Vec<Option<Installed>>),
     Latest(usize, Result<Release, String>),
     Status(usize, Status),
     InstallFinished,
@@ -33,9 +35,16 @@ enum Action {
     SelfUpdating,
 }
 
+struct Job {
+    row: usize,
+    app: AppEntry,
+    release: Release,
+    location: Option<PathBuf>,
+}
+
 struct Row {
     app: AppEntry,
-    installed: Option<String>,
+    installed: Option<Installed>,
     latest: Option<Result<Release, String>>,
     status: Status,
     selected: bool,
@@ -51,7 +60,7 @@ impl Row {
         Some(match &self.installed {
             None => Action::Install,
             Some(_) if self.app.self_updating => Action::SelfUpdating,
-            Some(current) if version::is_newer(&latest.version, current) => Action::Update,
+            Some(current) if version::is_newer(&latest.version, &current.version) => Action::Update,
             Some(_) => Action::UpToDate,
         })
     }
@@ -138,12 +147,19 @@ impl RestockApp {
     }
 
     fn install_selected(&mut self) {
-        let jobs: Vec<(usize, AppEntry, Release)> = self
+        let jobs: Vec<Job> = self
             .rows
             .iter()
             .enumerate()
             .filter(|(_, r)| r.selected)
-            .filter_map(|(i, r)| Some((i, r.app.clone(), r.release()?.clone())))
+            .filter_map(|(i, r)| {
+                Some(Job {
+                    row: i,
+                    app: r.app.clone(),
+                    release: r.release()?.clone(),
+                    location: r.installed.as_ref().and_then(|inst| inst.location.clone()),
+                })
+            })
             .collect();
         if jobs.is_empty() {
             return;
@@ -156,7 +172,13 @@ impl RestockApp {
             let client = source::client();
             // Installers run one at a time: MSI holds a global mutex and many
             // EXE installers misbehave when run concurrently.
-            for (i, app, release) in jobs {
+            for Job {
+                row: i,
+                app,
+                release,
+                location,
+            } in jobs
+            {
                 let status = |s: Status| notifier.send(Msg::Status(i, s));
                 let result = client
                     .as_ref()
@@ -167,7 +189,7 @@ impl RestockApp {
                             status(Status::Working(p))
                         })?;
                         status(Status::Working("Installing…".into()));
-                        install::install(&app.installer, &file)?;
+                        install::install(&app.installer, &file, location.as_deref())?;
                         let _ = std::fs::remove_dir_all(&dir);
                         let mut state = State::load();
                         state
@@ -283,7 +305,17 @@ impl RestockApp {
                             name.on_hover_text(&row.app.description);
                         }
 
-                        ui.label(row.installed.as_deref().unwrap_or("—"));
+                        match &row.installed {
+                            None => {
+                                ui.label("—");
+                            }
+                            Some(inst) => {
+                                let label = ui.label(&inst.version);
+                                if let Some(location) = &inst.location {
+                                    label.on_hover_text(location.display().to_string());
+                                }
+                            }
+                        }
 
                         match &row.latest {
                             None => ui.spinner(),
@@ -338,11 +370,11 @@ fn status_cell(ui: &mut egui::Ui, row: &Row) {
     }
 }
 
-fn detect_all(apps: &[AppEntry]) -> Vec<Option<String>> {
+fn detect_all(apps: &[AppEntry]) -> Vec<Option<Installed>> {
     let entries = detect::uninstall_entries();
     let state = State::load();
     apps.iter()
-        .map(|app| detect::installed_version(app, &entries, &state))
+        .map(|app| detect::installed(app, &entries, &state))
         .collect()
 }
 

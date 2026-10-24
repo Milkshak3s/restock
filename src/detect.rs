@@ -1,14 +1,29 @@
+use std::ffi::c_void;
+use std::os::windows::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
+use std::ptr;
+
 use regex::Regex;
+use windows_sys::Win32::Storage::FileSystem::{
+    GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
+};
 use winreg::RegKey;
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 
-use crate::catalog::{AppEntry, Detect};
+use crate::catalog::{AppEntry, Detect, expand_env};
 use crate::state::State;
 use crate::version;
 
 pub struct UninstallEntry {
     pub display_name: String,
     pub display_version: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Installed {
+    pub version: String,
+    /// Folder the app was found in, for apps detected by file.
+    pub location: Option<PathBuf>,
 }
 
 const UNINSTALL_KEYS: &[(winreg::HKEY, &str)] = &[
@@ -49,11 +64,8 @@ pub fn uninstall_entries() -> Vec<UninstallEntry> {
     entries
 }
 
-pub fn installed_version(
-    app: &AppEntry,
-    entries: &[UninstallEntry],
-    state: &State,
-) -> Option<String> {
+pub fn installed(app: &AppEntry, entries: &[UninstallEntry], state: &State) -> Option<Installed> {
+    let recorded = || state.installed.get(&app.id).cloned();
     match &app.detect {
         Detect::Registry {
             display_name,
@@ -66,8 +78,90 @@ pub fn installed_version(
             let version = version_re
                 .and_then(|vr| version::capture(&vr, raw))
                 .unwrap_or_else(|| raw.to_owned());
-            Some(version)
+            Some(Installed {
+                version,
+                location: None,
+            })
         }
-        Detect::Managed => state.installed.get(&app.id).cloned(),
+        Detect::File { paths } => {
+            let exe = find_first(paths)?;
+            Some(Installed {
+                version: file_version(&exe)
+                    .or_else(recorded)
+                    .unwrap_or_else(|| "unknown".into()),
+                location: exe.parent().map(Path::to_path_buf),
+            })
+        }
+        Detect::Managed => Some(Installed {
+            version: recorded()?,
+            location: None,
+        }),
+    }
+}
+
+fn find_first(patterns: &[String]) -> Option<PathBuf> {
+    patterns.iter().find_map(|pattern| {
+        glob::glob(&expand_env(pattern))
+            .ok()?
+            .flatten()
+            .find(|p| p.is_file())
+    })
+}
+
+/// The `major.minor.build.revision` file version embedded in an exe or dll.
+fn file_version(path: &Path) -> Option<String> {
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let root = [u16::from(b'\\'), 0];
+    // SAFETY: `wide` and `root` are NUL-terminated, `data` is sized by
+    // GetFileVersionInfoSizeW, and VerQueryValueW points `info` inside `data`
+    // with `len` checked before the (unaligned) read.
+    unsafe {
+        let size = GetFileVersionInfoSizeW(wide.as_ptr(), ptr::null_mut());
+        if size == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        if GetFileVersionInfoW(wide.as_ptr(), 0, size, data.as_mut_ptr().cast()) == 0 {
+            return None;
+        }
+        let mut info: *mut c_void = ptr::null_mut();
+        let mut len = 0u32;
+        if VerQueryValueW(data.as_ptr().cast(), root.as_ptr(), &mut info, &mut len) == 0
+            || info.is_null()
+            || (len as usize) < size_of::<VS_FIXEDFILEINFO>()
+        {
+            return None;
+        }
+        let info = ptr::read_unaligned(info as *const VS_FIXEDFILEINFO);
+        let (ms, ls) = (info.dwFileVersionMS, info.dwFileVersionLS);
+        Some(format!(
+            "{}.{}.{}.{}",
+            ms >> 16,
+            ms & 0xffff,
+            ls >> 16,
+            ls & 0xffff
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_exe_file_version() {
+        let notepad = Path::new(r"C:\Windows\System32\notepad.exe");
+        let version = file_version(notepad).expect("notepad has version info");
+        assert_eq!(version.split('.').count(), 4);
+    }
+
+    #[test]
+    fn finds_first_matching_pattern() {
+        let patterns = vec![
+            r"C:\definitely\not\here\*.exe".to_owned(),
+            r"%SystemRoot%\System32\notepad.ex?".to_owned(),
+        ];
+        let found = find_first(&patterns).expect("notepad exists");
+        assert!(found.ends_with("notepad.exe"));
     }
 }
