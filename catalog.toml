@@ -1,0 +1,60 @@
+# Restock catalog — the curated list of software this build manages.
+# This file is compiled into the binary; rebuild after editing.
+#
+# Each [[app]] has:
+#   id           unique, stable identifier (used for state tracking)
+#   name         display name
+#   description  optional one-liner
+#   essential    true = preselected by "Select essentials" on a fresh machine
+#
+# [app.source] — where the latest version comes from:
+#   type = "github"    repo = "owner/name", asset = "<regex on asset filename>",
+#                      version_regex = "<optional regex, capture group 1 = version from tag>"
+#                      (set GITHUB_TOKEN to raise the API rate limit / reach private repos)
+#   type = "manifest"  url = "https://.../latest.json"  -> {"version": "...", "url": "...", "sha256": "..."?}
+#   type = "direct"    url = "...", version = "...", sha256 = "..."?  (pinned)
+#
+# [app.installer] — what to do with the downloaded file:
+#   type = "exe"       args = ["/S"]                       silent installer
+#   type = "msi"       args = [...]                        run as msiexec /i <file> /qn /norestart <args>
+#   type = "zip"       dest = "%LOCALAPPDATA%\\Programs\\x", strip_root = true|false
+#   type = "portable"  dest = "...", file_name = "x.exe"?  copy a single file
+#   %VARS% in dest are expanded from the environment.
+#
+# [app.detect] — how to find the installed version (defaults to "managed"):
+#   type = "registry"  display_name = "<regex on Uninstall DisplayName>"
+#   type = "managed"   Restock records the version it installed (for zip/portable)
+
+[[app]]
+id = "7zip"
+name = "7-Zip"
+description = "File archiver"
+essential = true
+source = { type = "github", repo = "ip7z/7zip", asset = '^7z\d+-x64\.exe$' }
+installer = { type = "exe", args = ["/S"] }
+detect = { type = "registry", display_name = '^7-Zip' }
+
+[[app]]
+id = "notepad-plus-plus"
+name = "Notepad++"
+description = "Text editor"
+essential = true
+source = { type = "github", repo = "notepad-plus-plus/notepad-plus-plus", asset = '^npp\.[\d.]+\.Installer\.x64\.exe$' }
+installer = { type = "exe", args = ["/S"] }
+detect = { type = "registry", display_name = '^Notepad\+\+' }
+
+[[app]]
+id = "ripgrep"
+name = "ripgrep"
+description = "Fast recursive grep (portable zip)"
+source = { type = "github", repo = "BurntSushi/ripgrep", asset = 'x86_64-pc-windows-msvc\.zip$' }
+installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\ripgrep', strip_root = true }
+
+# Example: personal closed-source tool published with a tiny JSON manifest.
+# [[app]]
+# id = "my-tool"
+# name = "My Tool"
+# essential = true
+# source = { type = "manifest", url = "https://example.com/my-tool/latest.json" }
+# installer = { type = "msi" }
+# detect = { type = "registry", display_name = '^My Tool' }

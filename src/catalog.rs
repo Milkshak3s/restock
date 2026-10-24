@@ -1,0 +1,136 @@
+use std::collections::HashSet;
+
+use anyhow::{Context, Result, bail};
+use regex::Regex;
+use serde::Deserialize;
+
+const CATALOG_TOML: &str = include_str!("../catalog.toml");
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Catalog {
+    #[serde(rename = "app", default)]
+    pub apps: Vec<AppEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppEntry {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub essential: bool,
+    pub source: Source,
+    pub installer: Installer,
+    #[serde(default)]
+    pub detect: Detect,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Source {
+    Github {
+        repo: String,
+        asset: String,
+        #[serde(default)]
+        version_regex: Option<String>,
+    },
+    Manifest {
+        url: String,
+    },
+    Direct {
+        url: String,
+        version: String,
+        #[serde(default)]
+        sha256: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Installer {
+    Exe {
+        #[serde(default)]
+        args: Vec<String>,
+    },
+    Msi {
+        #[serde(default)]
+        args: Vec<String>,
+    },
+    Zip {
+        dest: String,
+        #[serde(default)]
+        strip_root: bool,
+    },
+    Portable {
+        dest: String,
+        #[serde(default)]
+        file_name: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Detect {
+    Registry {
+        display_name: String,
+    },
+    #[default]
+    Managed,
+}
+
+pub fn load() -> Result<Catalog> {
+    parse(CATALOG_TOML)
+}
+
+fn parse(text: &str) -> Result<Catalog> {
+    let catalog: Catalog = toml::from_str(text).context("parsing catalog.toml")?;
+
+    let mut ids = HashSet::new();
+    for app in &catalog.apps {
+        if !ids.insert(app.id.as_str()) {
+            bail!("duplicate app id `{}`", app.id);
+        }
+        let mut patterns = Vec::new();
+        if let Source::Github { asset, version_regex, .. } = &app.source {
+            patterns.push(asset);
+            patterns.extend(version_regex);
+        }
+        if let Detect::Registry { display_name } = &app.detect {
+            patterns.push(display_name);
+        }
+        for p in patterns {
+            Regex::new(p).with_context(|| format!("app `{}`: invalid regex `{p}`", app.id))?;
+        }
+    }
+    Ok(catalog)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_catalog_is_valid() {
+        let catalog = load().unwrap();
+        assert!(!catalog.apps.is_empty());
+    }
+
+    #[test]
+    fn rejects_duplicate_ids() {
+        let text = r#"
+            [[app]]
+            id = "a"
+            name = "A"
+            source = { type = "direct", url = "https://x/a.exe", version = "1" }
+            installer = { type = "exe" }
+
+            [[app]]
+            id = "a"
+            name = "A again"
+            source = { type = "direct", url = "https://x/a.exe", version = "1" }
+            installer = { type = "exe" }
+        "#;
+        assert!(parse(text).is_err());
+    }
+}
