@@ -110,7 +110,12 @@ fn parse(text: &str) -> Result<Catalog> {
             bail!("duplicate app id `{}`", app.id);
         }
         let mut patterns = Vec::new();
-        if let Source::Github { asset, version_regex, .. } = &app.source {
+        if let Source::Github {
+            asset,
+            version_regex,
+            ..
+        } = &app.source
+        {
             patterns.push(asset);
             patterns.extend(version_regex);
         }

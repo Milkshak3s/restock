@@ -82,11 +82,20 @@ impl RestockApp {
         let rows = catalog
             .apps
             .into_iter()
-            .map(|app| Row { app, installed: None, latest: None, status: Status::Idle, selected: false })
+            .map(|app| Row {
+                app,
+                installed: None,
+                latest: None,
+                status: Status::Idle,
+                selected: false,
+            })
             .collect();
         let mut app = Self {
             rows,
-            notifier: Notifier { tx, ctx: cc.egui_ctx.clone() },
+            notifier: Notifier {
+                tx,
+                ctx: cc.egui_ctx.clone(),
+            },
             rx,
             installing: false,
         };
@@ -108,7 +117,11 @@ impl RestockApp {
         for (i, row) in self.rows.iter_mut().enumerate() {
             row.latest = None;
             row.status = Status::Idle;
-            let (client, source, notifier) = (client.clone(), row.app.source.clone(), self.notifier.clone());
+            let (client, source, notifier) = (
+                client.clone(),
+                row.app.source.clone(),
+                self.notifier.clone(),
+            );
             thread::spawn(move || {
                 let result = source::resolve(&client, &source).map_err(|e| format!("{e:#}"));
                 notifier.send(Msg::Latest(i, result));
@@ -143,16 +156,23 @@ impl RestockApp {
             // EXE installers misbehave when run concurrently.
             for (i, app, release) in jobs {
                 let status = |s: Status| notifier.send(Msg::Status(i, s));
-                let result = client.as_ref().map_err(|e| anyhow::anyhow!("{e}")).and_then(|client| {
-                    let dir = std::env::temp_dir().join("restock").join(&app.id);
-                    let file = install::download(client, &release, &dir, |p| status(Status::Working(p)))?;
-                    status(Status::Working("Installing…".into()));
-                    install::install(&app.installer, &file)?;
-                    let _ = std::fs::remove_dir_all(&dir);
-                    let mut state = State::load();
-                    state.installed.insert(app.id.clone(), release.version.clone());
-                    state.save()
-                });
+                let result = client
+                    .as_ref()
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+                    .and_then(|client| {
+                        let dir = std::env::temp_dir().join("restock").join(&app.id);
+                        let file = install::download(client, &release, &dir, |p| {
+                            status(Status::Working(p))
+                        })?;
+                        status(Status::Working("Installing…".into()));
+                        install::install(&app.installer, &file)?;
+                        let _ = std::fs::remove_dir_all(&dir);
+                        let mut state = State::load();
+                        state
+                            .installed
+                            .insert(app.id.clone(), release.version.clone());
+                        state.save()
+                    });
                 status(match result {
                     Ok(()) => Status::Done(format!("Installed {}", release.version)),
                     Err(e) => Status::Failed(format!("{e:#}")),
@@ -191,9 +211,14 @@ impl RestockApp {
                 if ui.button("⟳ Refresh").clicked() {
                     self.refresh();
                 }
-                if ui.button("Select essentials").on_hover_text("Missing or outdated apps marked essential").clicked() {
+                if ui
+                    .button("Select essentials")
+                    .on_hover_text("Missing or outdated apps marked essential")
+                    .clicked()
+                {
                     for row in &mut self.rows {
-                        row.selected = row.app.essential && matches!(row.action(), Some(Action::Install | Action::Update));
+                        row.selected = row.app.essential
+                            && matches!(row.action(), Some(Action::Install | Action::Update));
                     }
                 }
                 if ui.button("Select updates").clicked() {
@@ -210,8 +235,15 @@ impl RestockApp {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count = self.rows.iter().filter(|r| r.selected).count();
-                let label = if self.installing { "Working…".to_owned() } else { format!("Install / update selected ({count})") };
-                if ui.add_enabled(!self.installing && count > 0, egui::Button::new(label)).clicked() {
+                let label = if self.installing {
+                    "Working…".to_owned()
+                } else {
+                    format!("Install / update selected ({count})")
+                };
+                if ui
+                    .add_enabled(!self.installing && count > 0, egui::Button::new(label))
+                    .clicked()
+                {
                     self.install_selected();
                 }
             });
@@ -221,42 +253,48 @@ impl RestockApp {
     fn table(&mut self, ui: &mut egui::Ui) {
         let installing = self.installing;
         egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("apps").num_columns(5).striped(true).spacing([16.0, 8.0]).show(ui, |ui| {
-                ui.label("");
-                ui.strong("App");
-                ui.strong("Installed");
-                ui.strong("Latest");
-                ui.strong("Status");
-                ui.end_row();
-
-                for row in &mut self.rows {
-                    let can_select = !installing && row.release().is_some();
-                    ui.add_enabled(can_select, egui::Checkbox::without_text(&mut row.selected));
-
-                    let name = ui
-                        .horizontal(|ui| {
-                            ui.label(RichText::new(&row.app.name).strong());
-                            if row.app.essential {
-                                ui.label(RichText::new("essential").small().weak());
-                            }
-                        })
-                        .response;
-                    if !row.app.description.is_empty() {
-                        name.on_hover_text(&row.app.description);
-                    }
-
-                    ui.label(row.installed.as_deref().unwrap_or("—"));
-
-                    match &row.latest {
-                        None => ui.spinner(),
-                        Some(Ok(r)) => ui.label(&r.version),
-                        Some(Err(e)) => ui.colored_label(ui.visuals().error_fg_color, "error").on_hover_text(e),
-                    };
-
-                    status_cell(ui, row);
+            egui::Grid::new("apps")
+                .num_columns(5)
+                .striped(true)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("");
+                    ui.strong("App");
+                    ui.strong("Installed");
+                    ui.strong("Latest");
+                    ui.strong("Status");
                     ui.end_row();
-                }
-            });
+
+                    for row in &mut self.rows {
+                        let can_select = !installing && row.release().is_some();
+                        ui.add_enabled(can_select, egui::Checkbox::without_text(&mut row.selected));
+
+                        let name = ui
+                            .horizontal(|ui| {
+                                ui.label(RichText::new(&row.app.name).strong());
+                                if row.app.essential {
+                                    ui.label(RichText::new("essential").small().weak());
+                                }
+                            })
+                            .response;
+                        if !row.app.description.is_empty() {
+                            name.on_hover_text(&row.app.description);
+                        }
+
+                        ui.label(row.installed.as_deref().unwrap_or("—"));
+
+                        match &row.latest {
+                            None => ui.spinner(),
+                            Some(Ok(r)) => ui.label(&r.version),
+                            Some(Err(e)) => ui
+                                .colored_label(ui.visuals().error_fg_color, "error")
+                                .on_hover_text(e),
+                        };
+
+                        status_cell(ui, row);
+                        ui.end_row();
+                    }
+                });
         });
     }
 }
@@ -274,7 +312,8 @@ fn status_cell(ui: &mut egui::Ui, row: &Row) {
             ui.colored_label(GOOD, msg);
         }
         Status::Failed(err) => {
-            ui.colored_label(visuals.error_fg_color, "Failed").on_hover_text(err);
+            ui.colored_label(visuals.error_fg_color, "Failed")
+                .on_hover_text(err);
         }
         Status::Idle => match row.action() {
             None => {
@@ -296,7 +335,9 @@ fn status_cell(ui: &mut egui::Ui, row: &Row) {
 fn detect_all(apps: &[AppEntry]) -> Vec<Option<String>> {
     let entries = detect::uninstall_entries();
     let state = State::load();
-    apps.iter().map(|app| detect::installed_version(app, &entries, &state)).collect()
+    apps.iter()
+        .map(|app| detect::installed_version(app, &entries, &state))
+        .collect()
 }
 
 impl eframe::App for RestockApp {

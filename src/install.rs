@@ -15,7 +15,12 @@ use crate::source::Release;
 const ERROR_ELEVATION_REQUIRED: i32 = 740;
 
 /// Downloads into `dir`, verifying the checksum when the source provides one.
-pub fn download(client: &Client, release: &Release, dir: &Path, progress: impl Fn(String)) -> Result<PathBuf> {
+pub fn download(
+    client: &Client,
+    release: &Release,
+    dir: &Path,
+    progress: impl Fn(String),
+) -> Result<PathBuf> {
     fs::create_dir_all(dir)?;
     let path = dir.join(&release.file_name);
 
@@ -123,6 +128,8 @@ fn extract_zip(file: &Path, dest: &Path, strip_root: bool) -> Result<()> {
 
 fn expand_env(s: &str) -> PathBuf {
     let re = Regex::new(r"%([^%]+)%").expect("static regex");
-    let expanded = re.replace_all(s, |c: &Captures| std::env::var(&c[1]).unwrap_or_else(|_| c[0].to_owned()));
+    let expanded = re.replace_all(s, |c: &Captures| {
+        std::env::var(&c[1]).unwrap_or_else(|_| c[0].to_owned())
+    });
     PathBuf::from(expanded.into_owned())
 }

@@ -11,9 +11,18 @@ pub struct UninstallEntry {
 }
 
 const UNINSTALL_KEYS: &[(winreg::HKEY, &str)] = &[
-    (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-    (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-    (HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+    (
+        HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+    ),
+    (
+        HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    ),
+    (
+        HKEY_CURRENT_USER,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+    ),
 ];
 
 /// Everything listed under "Installed apps", machine-wide and per-user.
@@ -39,14 +48,22 @@ pub fn uninstall_entries() -> Vec<UninstallEntry> {
     entries
 }
 
-pub fn installed_version(app: &AppEntry, entries: &[UninstallEntry], state: &State) -> Option<String> {
+pub fn installed_version(
+    app: &AppEntry,
+    entries: &[UninstallEntry],
+    state: &State,
+) -> Option<String> {
     match &app.detect {
         Detect::Registry { display_name } => {
             let re = Regex::new(display_name).ok()?;
             entries
                 .iter()
                 .find(|e| re.is_match(&e.display_name))
-                .map(|e| e.display_version.clone().unwrap_or_else(|| "unknown".into()))
+                .map(|e| {
+                    e.display_version
+                        .clone()
+                        .unwrap_or_else(|| "unknown".into())
+                })
         }
         Detect::Managed => state.installed.get(&app.id).cloned(),
     }
