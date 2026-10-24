@@ -6,6 +6,7 @@
 #   name         display name
 #   description  optional one-liner
 #   essential    true = preselected by "Select essentials" on a fresh machine
+#   self_updating true = the app updates itself; Restock only installs it
 #
 # [app.source] — where the latest version comes from:
 #   type = "github"    repo = "owner/name", asset = "<regex on asset filename>",
@@ -13,7 +14,9 @@
 #                      (set GITHUB_TOKEN to raise the API rate limit / reach private repos)
 #   type = "manifest"  url = "https://.../latest.json"  -> {"version": "...", "url": "...", "sha256": "..."?}
 #                      version_key / url_key / sha256_key rename those fields for third-party JSON
-#   type = "direct"    url = "...", version = "...", sha256 = "..."?  (pinned)
+#   type = "redirect"  url = "<latest download link>", version_regex = "<capture group 1 = version from URL>"
+#                      follows redirects until the URL matches, e.g. .../x64/1.0.9265/Setup.exe
+#   type = "direct"    url = "...", version = "..."?, sha256 = "..."?  (pinned; version defaults to "latest")
 #
 # [app.installer] — what to do with the downloaded file:
 #   type = "exe"       args = ["/S"]                       silent installer
@@ -23,7 +26,8 @@
 #   %VARS% in dest are expanded from the environment.
 #
 # [app.detect] — how to find the installed version (defaults to "managed"):
-#   type = "registry"  display_name = "<regex on Uninstall DisplayName>"
+#   type = "registry"  display_name = "<regex on Uninstall DisplayName>",
+#                      version_regex = "<optional, capture group 1 = version from DisplayVersion>"
 #   type = "managed"   Restock records the version it installed (for zip/portable)
 
 [[app]]
@@ -75,6 +79,43 @@ description = "Launcher for the ArtCraft suite of open-source apps"
 source = { type = "github", repo = "storytold/craft-launcher", asset = '^artcraft-launcher-[\d.]+-windows-x64\.msi$' }
 installer = { type = "msi" }
 detect = { type = "registry", display_name = '^ArtCraft Launcher$' }
+
+[[app]]
+id = "eve-apm-preview"
+name = "EVE-APM Preview"
+description = "EVE Online client thumbnails and hotkey switching (portable)"
+source = { type = "github", repo = "mrmjstc/eve-apm-preview", asset = '^EVEAPMPreview-v[\d.]+\.zip$' }
+# The zip holds only the exe; profiles/ is created at runtime and survives updates.
+installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\EVEAPMPreview', strip_root = true }
+
+[[app]]
+id = "brave"
+name = "Brave"
+description = "Web browser"
+essential = true
+self_updating = true
+source = { type = "github", repo = "brave/brave-browser", asset = '^BraveBrowserStandaloneSilentSetup\.exe$' }
+installer = { type = "exe" }
+# DisplayVersion is "<chromium major>.<brave version>", e.g. 156.1.98.60.
+detect = { type = "registry", display_name = '^Brave$', version_regex = '^\d+\.(\d+\.\d+\.\d+)$' }
+
+[[app]]
+id = "discord"
+name = "Discord"
+description = "Chat (per-user install)"
+self_updating = true
+source = { type = "redirect", url = "https://discord.com/api/downloads/distributions/app/installers/latest?arch=x64&channel=stable&platform=win", version_regex = '/x64/([\d.]+)/' }
+installer = { type = "exe", args = ["-s"] }
+detect = { type = "registry", display_name = '^Discord$' }
+
+[[app]]
+id = "steam"
+name = "Steam"
+description = "Game store and launcher"
+self_updating = true
+source = { type = "direct", url = "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe" }
+installer = { type = "exe", args = ["/S"] }
+detect = { type = "registry", display_name = '^Steam$' }
 
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]

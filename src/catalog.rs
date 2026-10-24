@@ -20,6 +20,9 @@ pub struct AppEntry {
     pub description: String,
     #[serde(default)]
     pub essential: bool,
+    /// The app keeps itself current, so Restock only installs it.
+    #[serde(default)]
+    pub self_updating: bool,
     pub source: Source,
     pub installer: Installer,
     #[serde(default)]
@@ -44,12 +47,21 @@ pub enum Source {
         #[serde(default = "default_sha256_key")]
         sha256_key: String,
     },
+    Redirect {
+        url: String,
+        version_regex: String,
+    },
     Direct {
         url: String,
+        #[serde(default = "default_direct_version")]
         version: String,
         #[serde(default)]
         sha256: Option<String>,
     },
+}
+
+fn default_direct_version() -> String {
+    "latest".into()
 }
 
 fn default_version_key() -> String {
@@ -92,6 +104,8 @@ pub enum Installer {
 pub enum Detect {
     Registry {
         display_name: String,
+        #[serde(default)]
+        version_regex: Option<String>,
     },
     #[default]
     Managed,
@@ -110,17 +124,25 @@ fn parse(text: &str) -> Result<Catalog> {
             bail!("duplicate app id `{}`", app.id);
         }
         let mut patterns = Vec::new();
-        if let Source::Github {
-            asset,
-            version_regex,
-            ..
-        } = &app.source
-        {
-            patterns.push(asset);
-            patterns.extend(version_regex);
+        match &app.source {
+            Source::Github {
+                asset,
+                version_regex,
+                ..
+            } => {
+                patterns.push(asset);
+                patterns.extend(version_regex);
+            }
+            Source::Redirect { version_regex, .. } => patterns.push(version_regex),
+            Source::Manifest { .. } | Source::Direct { .. } => {}
         }
-        if let Detect::Registry { display_name } = &app.detect {
+        if let Detect::Registry {
+            display_name,
+            version_regex,
+        } = &app.detect
+        {
             patterns.push(display_name);
+            patterns.extend(version_regex);
         }
         for p in patterns {
             Regex::new(p).with_context(|| format!("app `{}`: invalid regex `{p}`", app.id))?;

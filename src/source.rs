@@ -1,10 +1,13 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, ClientBuilder};
+use reqwest::header::LOCATION;
+use reqwest::redirect::Policy;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::catalog::Source;
+use crate::version;
 
 #[derive(Debug, Clone)]
 pub struct Release {
@@ -14,10 +17,46 @@ pub struct Release {
     pub sha256: Option<String>,
 }
 
+const MAX_REDIRECTS: usize = 10;
+
+fn builder() -> ClientBuilder {
+    Client::builder().user_agent(concat!("restock/", env!("CARGO_PKG_VERSION")))
+}
+
 pub fn client() -> Result<Client> {
-    Ok(Client::builder()
-        .user_agent(concat!("restock/", env!("CARGO_PKG_VERSION")))
-        .build()?)
+    Ok(builder().build()?)
+}
+
+/// Follows a "latest" download link hop by hop until the URL contains the
+/// version, without downloading the file itself.
+fn follow_redirects(url: &str, version_regex: &str) -> Result<Release> {
+    let client = builder().redirect(Policy::none()).build()?;
+    let re = Regex::new(version_regex)?;
+    let mut current = url.to_owned();
+
+    for _ in 0..MAX_REDIRECTS {
+        if let Some(version) = version::capture(&re, &current) {
+            return Ok(Release {
+                version,
+                file_name: file_name_from_url(&current),
+                url: current,
+                sha256: None,
+            });
+        }
+        let resp = client.get(&current).send()?;
+        let location = resp
+            .headers()
+            .get(LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .with_context(|| {
+                format!(
+                    "{current} did not redirect to a versioned URL (HTTP {})",
+                    resp.status()
+                )
+            })?;
+        current = resp.url().join(location)?.to_string();
+    }
+    bail!("too many redirects from {url}")
 }
 
 pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
@@ -45,6 +84,7 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
                 sha256: field(sha256_key),
             })
         }
+        Source::Redirect { url, version_regex } => follow_redirects(url, version_regex),
         Source::Direct {
             url,
             version,
@@ -94,10 +134,7 @@ fn github_latest(
         .with_context(|| format!("no asset matching `{asset}` in {repo} {}", release.tag_name))?;
 
     let version = match version_regex {
-        Some(pattern) => Regex::new(pattern)?
-            .captures(&release.tag_name)
-            .and_then(|c| c.get(1))
-            .map(|m| m.as_str().to_owned())
+        Some(pattern) => version::capture(&Regex::new(pattern)?, &release.tag_name)
             .with_context(|| format!("`{pattern}` did not match tag {}", release.tag_name))?,
         None => release.tag_name.trim_start_matches('v').to_owned(),
     };

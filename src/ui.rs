@@ -30,6 +30,7 @@ enum Action {
     Install,
     Update,
     UpToDate,
+    SelfUpdating,
 }
 
 struct Row {
@@ -49,6 +50,7 @@ impl Row {
         let latest = self.release()?;
         Some(match &self.installed {
             None => Action::Install,
+            Some(_) if self.app.self_updating => Action::SelfUpdating,
             Some(current) if version::is_newer(&latest.version, current) => Action::Update,
             Some(_) => Action::UpToDate,
         })
@@ -327,6 +329,10 @@ fn status_cell(ui: &mut egui::Ui, row: &Row) {
             }
             Some(Action::UpToDate) => {
                 ui.colored_label(GOOD, "Up to date");
+            }
+            Some(Action::SelfUpdating) => {
+                ui.colored_label(GOOD, "Installed")
+                    .on_hover_text("Keeps itself up to date; Restock only installs it");
             }
         },
     }
