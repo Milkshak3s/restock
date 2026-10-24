@@ -12,6 +12,7 @@
 #                      version_regex = "<optional regex, capture group 1 = version from tag>"
 #                      (set GITHUB_TOKEN to raise the API rate limit / reach private repos)
 #   type = "manifest"  url = "https://.../latest.json"  -> {"version": "...", "url": "...", "sha256": "..."?}
+#                      version_key / url_key / sha256_key rename those fields for third-party JSON
 #   type = "direct"    url = "...", version = "...", sha256 = "..."?  (pinned)
 #
 # [app.installer] — what to do with the downloaded file:
@@ -49,6 +50,31 @@ name = "ripgrep"
 description = "Fast recursive grep (portable zip)"
 source = { type = "github", repo = "BurntSushi/ripgrep", asset = 'x86_64-pc-windows-msvc\.zip$' }
 installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\ripgrep', strip_root = true }
+
+[[app]]
+id = "vscode"
+name = "Visual Studio Code"
+description = "Code editor (per-user install)"
+essential = true
+source = { type = "manifest", url = "https://update.code.visualstudio.com/api/update/win32-x64-user/stable/latest", version_key = "productVersion", sha256_key = "sha256hash" }
+installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/MERGETASKS=!runcode"] }
+detect = { type = "registry", display_name = '^Microsoft Visual Studio Code \(User\)$' }
+
+[[app]]
+id = "pyfa"
+name = "Pyfa"
+description = "EVE Online fitting tool"
+source = { type = "github", repo = "pyfa-org/Pyfa", asset = '^pyfa-v[\d.]+-win\.exe$' }
+installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"] }
+detect = { type = "registry", display_name = '^pyfa version' }
+
+[[app]]
+id = "artcraft-launcher"
+name = "ArtCraft Launcher"
+description = "Launcher for the ArtCraft suite of open-source apps"
+source = { type = "github", repo = "storytold/craft-launcher", asset = '^artcraft-launcher-[\d.]+-windows-x64\.msi$' }
+installer = { type = "msi" }
+detect = { type = "registry", display_name = '^ArtCraft Launcher$' }
 
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]

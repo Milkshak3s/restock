@@ -37,6 +37,12 @@ pub enum Source {
     },
     Manifest {
         url: String,
+        #[serde(default = "default_version_key")]
+        version_key: String,
+        #[serde(default = "default_url_key")]
+        url_key: String,
+        #[serde(default = "default_sha256_key")]
+        sha256_key: String,
     },
     Direct {
         url: String,
@@ -44,6 +50,18 @@ pub enum Source {
         #[serde(default)]
         sha256: Option<String>,
     },
+}
+
+fn default_version_key() -> String {
+    "version".into()
+}
+
+fn default_url_key() -> String {
+    "url".into()
+}
+
+fn default_sha256_key() -> String {
+    "sha256".into()
 }
 
 #[derive(Debug, Clone, Deserialize)]

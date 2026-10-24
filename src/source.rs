@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use reqwest::blocking::Client;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::catalog::Source;
 
@@ -24,19 +25,15 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
         Source::Github { repo, asset, version_regex } => {
             github_latest(client, repo, asset, version_regex.as_deref())
         }
-        Source::Manifest { url } => {
-            #[derive(Deserialize)]
-            struct Manifest {
-                version: String,
-                url: String,
-                sha256: Option<String>,
-            }
-            let m: Manifest = client.get(url).send()?.error_for_status()?.json()?;
+        Source::Manifest { url, version_key, url_key, sha256_key } => {
+            let m: Value = client.get(url).send()?.error_for_status()?.json()?;
+            let field = |key: &str| m.get(key).and_then(Value::as_str).map(str::to_owned);
+            let download = field(url_key).with_context(|| format!("manifest has no string `{url_key}`"))?;
             Ok(Release {
-                file_name: file_name_from_url(&m.url),
-                version: m.version,
-                url: m.url,
-                sha256: m.sha256,
+                version: field(version_key).with_context(|| format!("manifest has no string `{version_key}`"))?,
+                file_name: file_name_from_url(&download),
+                url: download,
+                sha256: field(sha256_key),
             })
         }
         Source::Direct { url, version, sha256 } => Ok(Release {
