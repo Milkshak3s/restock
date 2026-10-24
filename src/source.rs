@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 use reqwest::blocking::{Client, ClientBuilder};
-use reqwest::header::LOCATION;
+use reqwest::header::{LAST_MODIFIED, LOCATION};
 use reqwest::redirect::Policy;
 use serde::Deserialize;
 use serde_json::Value;
@@ -85,6 +85,21 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
             })
         }
         Source::Redirect { url, version_regex } => follow_redirects(url, version_regex),
+        Source::LastModified { url } => {
+            let resp = client.head(url).send()?.error_for_status()?;
+            let header = resp
+                .headers()
+                .get(LAST_MODIFIED)
+                .and_then(|v| v.to_str().ok())
+                .with_context(|| format!("{url} sent no Last-Modified header"))?;
+            Ok(Release {
+                version: date_version(header)
+                    .with_context(|| format!("unrecognised Last-Modified `{header}`"))?,
+                url: url.clone(),
+                file_name: file_name_from_url(url),
+                sha256: None,
+            })
+        }
         Source::Direct {
             url,
             version,
@@ -158,4 +173,45 @@ fn file_name_from_url(url: &str) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or("download")
         .to_owned()
+}
+
+/// Turns an HTTP date (`Thu, 15 Oct 2026 23:34:10 GMT`) into a sortable
+/// `2026.10.15` version for downloads that publish no version number.
+fn date_version(http_date: &str) -> Option<String> {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let mut parts = http_date.split_whitespace().skip(1);
+    let day: u32 = parts.next()?.parse().ok()?;
+    let month_name = parts.next()?;
+    let month = MONTHS.iter().position(|m| *m == month_name)? + 1;
+    let year: u32 = parts.next()?.parse().ok()?;
+    Some(format!("{year}.{month:02}.{day:02}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_http_dates() {
+        assert_eq!(
+            date_version("Thu, 15 Oct 2026 23:34:10 GMT").as_deref(),
+            Some("2026.10.15")
+        );
+        assert_eq!(
+            date_version("Mon, 02 Feb 2026 00:00:00 GMT").as_deref(),
+            Some("2026.02.02")
+        );
+        assert_eq!(date_version("yesterday"), None);
+    }
+
+    #[test]
+    fn file_names_ignore_query_strings() {
+        assert_eq!(
+            file_name_from_url("https://x/files/SysinternalsSuite.zip?a=1"),
+            "SysinternalsSuite.zip"
+        );
+        assert_eq!(file_name_from_url("https://x/"), "download");
+    }
 }

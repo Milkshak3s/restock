@@ -16,6 +16,8 @@
 #                      version_key / url_key / sha256_key rename those fields for third-party JSON
 #   type = "redirect"  url = "<latest download link>", version_regex = "<capture group 1 = version from URL>"
 #                      follows redirects until the URL matches, e.g. .../x64/1.0.9265/Setup.exe
+#   type = "lastmodified"  url = "..."  version is the file's Last-Modified date (2026.10.15)
+#                      for downloads that publish no version number
 #   type = "direct"    url = "...", version = "..."?, sha256 = "..."?  (pinned; version defaults to "latest")
 #
 # [app.installer] — what to do with the downloaded file:
@@ -116,6 +118,22 @@ self_updating = true
 source = { type = "direct", url = "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe" }
 installer = { type = "exe", args = ["/S"] }
 detect = { type = "registry", display_name = '^Steam$' }
+
+[[app]]
+id = "obs-studio"
+name = "OBS Studio"
+description = "Screen recording and streaming"
+source = { type = "github", repo = "obsproject/obs-studio", asset = '^OBS-Studio-[\d.]+-Windows-x64-Installer\.exe$' }
+installer = { type = "exe", args = ["/S"] }
+detect = { type = "registry", display_name = '^OBS Studio$' }
+
+[[app]]
+id = "sysinternals"
+name = "Sysinternals Suite"
+description = "Process Explorer, Process Monitor, Autoruns and friends (portable, ~370 MB)"
+source = { type = "lastmodified", url = "https://download.sysinternals.com/files/SysinternalsSuite.zip" }
+# Flat zip of standalone tools. Close any running tools before updating.
+installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\Sysinternals' }
 
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]

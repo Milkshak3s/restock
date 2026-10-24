@@ -51,6 +51,9 @@ pub enum Source {
         url: String,
         version_regex: String,
     },
+    LastModified {
+        url: String,
+    },
     Direct {
         url: String,
         #[serde(default = "default_direct_version")]
@@ -134,7 +137,7 @@ fn parse(text: &str) -> Result<Catalog> {
                 patterns.extend(version_regex);
             }
             Source::Redirect { version_regex, .. } => patterns.push(version_regex),
-            Source::Manifest { .. } | Source::Direct { .. } => {}
+            Source::Manifest { .. } | Source::LastModified { .. } | Source::Direct { .. } => {}
         }
         if let Detect::Registry {
             display_name,
