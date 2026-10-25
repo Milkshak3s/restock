@@ -4,7 +4,7 @@ use std::thread;
 
 use eframe::egui::{self, Color32, RichText};
 
-use crate::catalog::{AppEntry, Catalog};
+use crate::catalog::{AppEntry, Catalog, Source};
 use crate::detect::Installed;
 use crate::source::{self, Release};
 use crate::state::State;
@@ -184,28 +184,38 @@ impl RestockApp {
                     "{} {}: installing {} from {} (existing: {:?})",
                     app.id, app.name, release.version, release.url, location
                 ));
-                let result = client
-                    .as_ref()
-                    .map_err(|e| anyhow::anyhow!("{e}"))
-                    .and_then(|client| {
-                        let dir = std::env::temp_dir().join("restock").join(&app.id);
-                        let file = install::download(client, &release, &dir, |p| {
-                            status(Status::Working(p))
-                        })?;
-                        status(Status::Working("Installing…".into()));
-                        install::install(&app, &file, location.as_deref())?;
-                        let _ = std::fs::remove_dir_all(&dir);
-                        let mut state = State::load();
-                        state
-                            .installed
-                            .insert(app.id.clone(), release.version.clone());
-                        state.save()
-                    });
+                let result = match &app.source {
+                    // Nothing to download, and the version comes from the package.
+                    Source::MsStore { id } => {
+                        status(Status::Working(
+                            "Installing from the Microsoft Store…".into(),
+                        ));
+                        install::install_from_store(&app, id)
+                    }
+                    _ => client
+                        .as_ref()
+                        .map_err(|e| anyhow::anyhow!("{e}"))
+                        .and_then(|client| {
+                            let dir = std::env::temp_dir().join("restock").join(&app.id);
+                            let file = install::download(client, &release, &dir, |p| {
+                                status(Status::Working(p))
+                            })?;
+                            status(Status::Working("Installing…".into()));
+                            install::install(&app, &file, location.as_deref())?;
+                            let _ = std::fs::remove_dir_all(&dir);
+                            let mut state = State::load();
+                            state
+                                .installed
+                                .insert(app.id.clone(), release.version.clone());
+                            state.save()
+                        }),
+                };
                 match &result {
                     Ok(()) => log::write(format!("{}: done", app.id)),
                     Err(e) => log::write(format!("{}: FAILED: {e:#}", app.id)),
                 }
                 status(match result {
+                    Ok(()) if is_store(&app) => Status::Done("Installed".into()),
                     Ok(()) => Status::Done(format!("Installed {}", release.version)),
                     Err(e) => Status::Failed(format!("{e:#}")),
                 });
@@ -299,13 +309,23 @@ impl RestockApp {
 
                     for row in &mut self.rows {
                         let can_select = !installing && row.release().is_some();
-                        ui.add_enabled(can_select, egui::Checkbox::without_text(&mut row.selected));
+                        let checkbox = ui.add_enabled(
+                            can_select,
+                            egui::Checkbox::without_text(&mut row.selected),
+                        );
+                        if is_store(&row.app) {
+                            checkbox.on_hover_text(STORE_TERMS);
+                        }
 
                         let name = ui
                             .horizontal(|ui| {
                                 ui.label(RichText::new(&row.app.name).strong());
                                 if row.app.essential {
                                     ui.label(RichText::new("essential").small().weak());
+                                }
+                                if is_store(&row.app) {
+                                    ui.label(RichText::new("Microsoft Store").small().weak())
+                                        .on_hover_text(STORE_TERMS);
                                 }
                             })
                             .response;
@@ -381,6 +401,13 @@ Details: {}",
             }
         },
     }
+}
+
+const STORE_TERMS: &str = "Installed with winget from the Microsoft Store. Installing \
+    accepts the Microsoft Store terms and the app's own license terms on your behalf.";
+
+fn is_store(app: &AppEntry) -> bool {
+    matches!(app.source, Source::MsStore { .. })
 }
 
 fn detect_all(apps: &[AppEntry]) -> Vec<Option<Installed>> {

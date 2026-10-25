@@ -1,5 +1,6 @@
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -76,7 +77,8 @@ pub fn install(app: &AppEntry, file: &Path, existing: Option<&Path>) -> Result<(
     let dest = |configured: &str| {
         existing.map_or_else(|| PathBuf::from(expand_env(configured)), Path::to_path_buf)
     };
-    let code = match &app.installer {
+    let installer = app.installer.as_ref().context("app has no installer")?;
+    let code = match installer {
         Installer::Exe { args } => run(Command::new(file).args(args), false)?,
         // msiexec itself starts fine unelevated, but a silent (/qn) per-machine
         // install then fails instead of prompting, so elevate up front.
@@ -115,6 +117,116 @@ pub fn install(app: &AppEntry, file: &Path, existing: Option<&Path>) -> Result<(
         0 | 1641 | 3010 => Ok(()),
         code => Err(installer_failed(app, code, existing)),
     }
+}
+
+/// Installs a Microsoft Store product with winget, accepting the Store's and
+/// the package's terms. MSIX packages are per-user: an elevated Restock still
+/// installs for its own user, which is the signed-in user unless UAC was
+/// approved with a different admin account.
+pub fn install_from_store(app: &AppEntry, id: &str) -> Result<()> {
+    let mut cmd = Command::new("winget");
+    cmd.args(["install", "--id", id, "--exact", "--source", "msstore"])
+        .args(["--silent", "--disable-interactivity"])
+        .args(["--accept-package-agreements", "--accept-source-agreements"])
+        .creation_flags(CREATE_NO_WINDOW);
+    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
+    log::write(format!(
+        "  run winget {args:?} (restock elevated: {})",
+        elevate::is_elevated()
+    ));
+    let started = Instant::now();
+    let output = cmd
+        .output()
+        .context("could not run winget (is App Installer installed?)")?;
+    let text = winget_text(&output.stdout);
+    for line in text.lines() {
+        log::write(format!("  winget: {line}"));
+    }
+    let code = output.status.code().context("winget was terminated")?;
+    log::write(format!(
+        "  exit code {code} (0x{code:08X}) after {:.1}s",
+        started.elapsed().as_secs_f64()
+    ));
+    match code as u32 {
+        0 | WINGET_ALREADY_INSTALLED | WINGET_UPDATE_NOT_APPLICABLE | WINGET_REBOOT_TO_FINISH => {
+            Ok(())
+        }
+        code => Err(winget_failed(app, code, &text)),
+    }
+}
+
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const WINGET_ALREADY_INSTALLED: u32 = 0x8A15_0061;
+const WINGET_UPDATE_NOT_APPLICABLE: u32 = 0x8A15_002B;
+const WINGET_REBOOT_TO_FINISH: u32 = 0x8A15_0109;
+
+/// winget's own descriptions of the failures a Store install is likely to hit
+/// (github.com/microsoft/winget-cli, doc/windows/package-manager/winget/returnCodes.md).
+const WINGET_ERRORS: &[(u32, &str)] = &[
+    (0x8A15_0005, "cancelled"),
+    (0x8A15_0008, "download failed"),
+    (
+        0x8A15_0014,
+        "no package with that id in the Microsoft Store",
+    ),
+    (
+        0x8A15_001B,
+        "the Microsoft Store client is blocked by policy",
+    ),
+    (0x8A15_001C, "the Microsoft Store app is blocked by policy"),
+    (0x8A15_001E, "the Microsoft Store install failed"),
+    (0x8A15_0041, "package agreements were not accepted"),
+    (0x8A15_0046, "source agreements were not accepted"),
+    (
+        0x8A15_007D,
+        "not permitted from an administrator context for per-user packages",
+    ),
+    (0x8A15_007F, "could not reach the Microsoft Store catalog"),
+    (
+        0x8A15_0083,
+        "could not get a Microsoft Store license (sign in to the Store app)",
+    ),
+    (0x8A15_0101, "the app is running; close it and retry"),
+    (0x8A15_0102, "another installation is in progress"),
+    (0x8A15_0104, "a dependency is missing"),
+    (0x8A15_0105, "the disk is full"),
+    (0x8A15_0107, "no network connection"),
+    (0x8A15_010A, "restart the PC, then retry"),
+    (0x8A15_010C, "cancelled"),
+    (0x8A15_010F, "blocked by organization policy"),
+    (0x8A15_0110, "installing dependencies failed"),
+    (0x8A15_0113, "not supported on this system"),
+];
+
+/// Explains a failed winget exit code, with winget's last line of output.
+fn winget_failed(app: &AppEntry, code: u32, output: &str) -> anyhow::Error {
+    let mut msg = format!("winget exited with 0x{code:08X}");
+    let meaning = app
+        .exit_codes
+        .get(&(code as i32).to_string())
+        .map(String::as_str);
+    let known = WINGET_ERRORS
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, m)| *m);
+    if let Some(meaning) = meaning.or(known) {
+        msg = format!("{msg}: {meaning}");
+    }
+    if let Some(last) = output.lines().last() {
+        msg = format!("{msg} (winget: {last})");
+    }
+    anyhow::anyhow!(msg)
+}
+
+/// winget's console output without progress bars and spinners: the last
+/// redraw of each line, trimmed, non-empty lines only.
+fn winget_text(stdout: &[u8]) -> String {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter_map(|line| line.rsplit('\r').map(str::trim).find(|s| !s.is_empty()))
+        .filter(|line| !line.contains(['█', '▒']) && !matches!(*line, "-" | "\\" | "|" | "/"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Explains a failed exit code using the catalog's `exit_codes`, and names
@@ -262,6 +374,34 @@ mod tests {
     }
 
     #[test]
+    fn winget_output_drops_progress_and_explains_codes() {
+        let stdout = concat!(
+            "   - \r   \\ \r\r\n",
+            "Found Apple Devices [9NP83LWLPZ9K] Version Unknown\r\n",
+            "This package is provided through Microsoft Store.\r\n",
+            "\r  ██████████▒▒▒▒  1.00 MB / 2.00 MB\r  ████████████  2.00 MB / 2.00 MB\r\n",
+            "Failed when searching source: msstore\r\n",
+        );
+        let text = winget_text(stdout.as_bytes());
+        assert_eq!(
+            text,
+            "Found Apple Devices [9NP83LWLPZ9K] Version Unknown\n\
+             This package is provided through Microsoft Store.\n\
+             Failed when searching source: msstore"
+        );
+        let app = app_with(Installer::Exe { args: vec![] });
+        assert_eq!(
+            winget_failed(&app, 0x8A15_0014, &text).to_string(),
+            "winget exited with 0x8A150014: no package with that id in the Microsoft Store \
+             (winget: Failed when searching source: msstore)"
+        );
+        assert_eq!(
+            winget_failed(&app, 0x8A15_FFFF, "").to_string(),
+            "winget exited with 0x8A15FFFF"
+        );
+    }
+
+    #[test]
     fn locked_folder_errors_name_the_program() {
         // This test's own exe is running, so its folder counts as locked.
         let dir = std::env::current_exe()
@@ -293,7 +433,7 @@ mod tests {
                 version: "1.0".into(),
                 sha256: None,
             },
-            installer,
+            installer: Some(installer),
             detect: crate::catalog::Detect::Managed,
         }
     }

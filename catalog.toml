@@ -24,6 +24,14 @@
 #                      platform = "windows/x64"? (multi-platform feeds), url_template = "...{version}..."?
 #                      newest release in the channel, verified against the feed's SHA-512
 #   type = "direct"    url = "...", version = "..."?, sha256 = "..."?  (pinned; version defaults to "latest")
+#   type = "msstore"   id = "<Store product id>"  (`winget search "<name>" --source msstore`)
+#                      nothing is downloaded and there's no [app.installer]: Restock runs
+#                      winget install --id <id> --source msstore --silent, which accepts the
+#                      Store's and the package's terms. winget can't report Store versions, so
+#                      these apps must be self_updating = true (the Store keeps them current)
+#                      and need detect type "appx". MSIX packages are per-user: an elevated
+#                      Restock installs for the user it runs as, which is the signed-in user
+#                      unless UAC was approved with a different admin account.
 #
 # [app.installer] — what to do with the downloaded file:
 #   type = "exe"       args = ["/S"]                       silent installer
@@ -39,6 +47,9 @@
 #                      for installers that leave DisplayVersion stale
 #   type = "file"      paths = ['<glob for the exe>', ...]  first match wins; version is read
 #                      from the exe, and zip/portable updates go into that exe's folder
+#   type = "appx"      family = "<package family name, Name_PublisherId>"  an MSIX/Store package
+#                      installed for the current user; version is the package's. Find the family
+#                      after installing with Get-AppxPackage <Name> | Select PackageFamilyName
 #   type = "managed"   Restock records the version it installed (for zip/portable)
 
 [[app]]
@@ -191,6 +202,14 @@ installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\craft-proton-sync', 
 # The exe has no embedded version yet, so this falls back to the version Restock
 # installed; it goes stale if the app's own updater replaces the exe.
 detect = { type = "file", paths = ['%LOCALAPPDATA%\Programs\craft-proton-sync\craft-proton-sync.exe'] }
+
+[[app]]
+id = "apple-devices"
+name = "Apple Devices"
+description = "iPhone/iPad support: Apple's device drivers and services"
+self_updating = true
+source = { type = "msstore", id = "9NP83LWLPZ9K" }
+detect = { type = "appx", family = "AppleInc.AppleDevices_nzyj5cx40ttqa" }
 
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]

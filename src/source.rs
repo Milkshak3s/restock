@@ -127,8 +127,20 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
             sha256: sha256.clone(),
             sha512: None,
         }),
+        // winget reports Store versions as "Unknown"; these apps are
+        // self-updating, so the latest version is never compared.
+        Source::MsStore { id } => Ok(Release {
+            version: STORE_VERSION.into(),
+            url: format!("https://apps.microsoft.com/detail/{id}"),
+            file_name: String::new(),
+            sha256: None,
+            sha512: None,
+        }),
     }
 }
+
+/// What the Latest column shows for Microsoft Store apps.
+pub const STORE_VERSION: &str = "Microsoft Store";
 
 fn github_latest(
     client: &Client,
