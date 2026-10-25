@@ -15,6 +15,7 @@ pub struct Release {
     pub url: String,
     pub file_name: String,
     pub sha256: Option<String>,
+    pub sha512: Option<String>,
 }
 
 const MAX_REDIRECTS: usize = 10;
@@ -41,6 +42,7 @@ fn follow_redirects(url: &str, version_regex: &str) -> Result<Release> {
                 file_name: file_name_from_url(&current),
                 url: current,
                 sha256: None,
+                sha512: None,
             });
         }
         let resp = client.get(&current).send()?;
@@ -82,9 +84,22 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
                 file_name: file_name_from_url(&download),
                 url: download,
                 sha256: field(sha256_key),
+                sha512: None,
             })
         }
         Source::Redirect { url, version_regex } => follow_redirects(url, version_regex),
+        Source::Proton {
+            url,
+            channel,
+            platform,
+            url_template,
+        } => proton_latest(
+            client,
+            url,
+            channel,
+            platform.as_deref(),
+            url_template.as_deref(),
+        ),
         Source::LastModified { url } => {
             let resp = client.head(url).send()?.error_for_status()?;
             let header = resp
@@ -98,6 +113,7 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
                 url: url.clone(),
                 file_name: file_name_from_url(url),
                 sha256: None,
+                sha512: None,
             })
         }
         Source::Direct {
@@ -109,6 +125,7 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
             url: url.clone(),
             file_name: file_name_from_url(url),
             sha256: sha256.clone(),
+            sha512: None,
         }),
     }
 }
@@ -163,6 +180,82 @@ fn github_latest(
             .as_deref()
             .and_then(|d| d.strip_prefix("sha256:"))
             .map(str::to_owned),
+        sha512: None,
+    })
+}
+
+/// Reads one of Proton's `version.json` feeds: the newest release in
+/// `channel`, its file for `platform` (multi-platform feeds), and its SHA-512.
+fn proton_latest(
+    client: &Client,
+    url: &str,
+    channel: &str,
+    platform: Option<&str>,
+    url_template: Option<&str>,
+) -> Result<Release> {
+    let feed: Value = client.get(url).send()?.error_for_status()?.json()?;
+    proton_release(&feed, channel, platform, url_template).with_context(|| format!("reading {url}"))
+}
+
+fn proton_release(
+    feed: &Value,
+    channel: &str,
+    platform: Option<&str>,
+    url_template: Option<&str>,
+) -> Result<Release> {
+    let releases = feed
+        .get("Releases")
+        .and_then(Value::as_array)
+        .context("no Releases list")?;
+    let release = releases
+        .iter()
+        .find(|r| {
+            r.get("CategoryName")
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.eq_ignore_ascii_case(channel))
+        })
+        .with_context(|| format!("no {channel} release"))?;
+    let version = release
+        .get("Version")
+        .and_then(Value::as_str)
+        .context("release has no Version")?
+        .to_owned();
+
+    // `File` is an object in some feeds and a list in others; the CLI's is `Files`.
+    let files: Vec<&Value> = match release.get("File").or_else(|| release.get("Files")) {
+        Some(Value::Array(list)) => list.iter().collect(),
+        Some(file @ Value::Object(_)) => vec![file],
+        _ => bail!("release {version} lists no files"),
+    };
+    let file = match platform {
+        Some(p) => files
+            .into_iter()
+            .find(|f| f.get("Platform").and_then(Value::as_str) == Some(p))
+            .with_context(|| format!("release {version} has no {p} file"))?,
+        None => files
+            .first()
+            .copied()
+            .with_context(|| format!("release {version} lists no files"))?,
+    };
+    let download = match url_template {
+        Some(template) => template.replace("{version}", &version),
+        None => file
+            .get("Url")
+            .and_then(Value::as_str)
+            .context("file has no Url")?
+            .to_owned(),
+    };
+    let sha512 = ["Sha512CheckSum", "Sha512Checksum"]
+        .iter()
+        .find_map(|key| file.get(*key).and_then(Value::as_str))
+        .map(str::to_owned);
+
+    Ok(Release {
+        version,
+        file_name: file_name_from_url(&download).replace("%20", " "),
+        url: download,
+        sha256: None,
+        sha512,
     })
 }
 
@@ -204,6 +297,46 @@ mod tests {
             Some("2026.02.02")
         );
         assert_eq!(date_version("yesterday"), None);
+    }
+
+    #[test]
+    fn proton_feed_picks_channel_platform_and_template() {
+        // Trimmed from proton.me/download/mail/windows/version.json and
+        // .../drive/cli/version.json.
+        let mail = serde_json::json!({ "Releases": [
+            { "CategoryName": "Alpha", "Version": "1.16.0",
+              "File": [{ "Url": "https://p/mail/ProtonMail-desktop.exe", "Sha512CheckSum": "aa" }] },
+            { "CategoryName": "Stable", "Version": "1.14.0",
+              "File": [{ "Url": "https://p/mail/ProtonMail-desktop.exe", "Sha512CheckSum": "bb" }] },
+        ]});
+        let r = proton_release(
+            &mail,
+            "Stable",
+            None,
+            Some("https://p/mail/{version}/ProtonMail-desktop.exe"),
+        )
+        .unwrap();
+        assert_eq!(r.version, "1.14.0");
+        assert_eq!(r.url, "https://p/mail/1.14.0/ProtonMail-desktop.exe");
+        assert_eq!(r.sha512.as_deref(), Some("bb"));
+
+        let drive = serde_json::json!({ "Releases": [
+            { "CategoryName": "Stable", "Version": "3.0.9",
+              "File": { "Url": "https://p/drive/Proton%20Drive%20Setup%203.0.9.exe", "Sha512Checksum": "cc" } },
+        ]});
+        let r = proton_release(&drive, "Stable", None, None).unwrap();
+        assert_eq!(r.file_name, "Proton Drive Setup 3.0.9.exe");
+        assert_eq!(r.sha512.as_deref(), Some("cc"));
+
+        let cli = serde_json::json!({ "Releases": [
+            { "CategoryName": "Stable", "Version": "0.9.0", "Files": [
+                { "Url": "https://p/cli/linux-x64/proton-drive", "Platform": "linux/x64" },
+                { "Url": "https://p/cli/windows-x64/proton-drive.exe", "Platform": "windows/x64" },
+            ]},
+        ]});
+        let r = proton_release(&cli, "Stable", Some("windows/x64"), None).unwrap();
+        assert_eq!(r.url, "https://p/cli/windows-x64/proton-drive.exe");
+        assert!(proton_release(&cli, "Beta", None, None).is_err());
     }
 
     #[test]

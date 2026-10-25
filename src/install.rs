@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use reqwest::blocking::Client;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 
 use crate::catalog::{AppEntry, Installer, expand_env};
 use crate::source::Release;
@@ -27,7 +27,8 @@ pub fn download(
     let mut resp = client.get(&release.url).send()?.error_for_status()?;
     let total = resp.content_length();
     let mut file = File::create(&path)?;
-    let mut hasher = Sha256::new();
+    let mut sha256 = Sha256::new();
+    let mut sha512 = release.sha512.is_some().then(Sha512::new);
     let mut buf = vec![0u8; 64 * 1024];
     let mut done: u64 = 0;
     let mut last_report = Instant::now();
@@ -38,7 +39,10 @@ pub fn download(
             break;
         }
         file.write_all(&buf[..n])?;
-        hasher.update(&buf[..n]);
+        sha256.update(&buf[..n]);
+        if let Some(h) = &mut sha512 {
+            h.update(&buf[..n]);
+        }
         done += n as u64;
         if last_report.elapsed() > Duration::from_millis(200) {
             last_report = Instant::now();
@@ -50,12 +54,19 @@ pub fn download(
     }
 
     if let Some(expected) = &release.sha256 {
-        let actual = hex::encode(hasher.finalize());
-        if !actual.eq_ignore_ascii_case(expected) {
-            bail!("checksum mismatch: expected {expected}, got {actual}");
-        }
+        verify("SHA-256", expected, &hex::encode(sha256.finalize()))?;
+    }
+    if let (Some(expected), Some(h)) = (&release.sha512, sha512) {
+        verify("SHA-512", expected, &hex::encode(h.finalize()))?;
     }
     Ok(path)
+}
+
+fn verify(kind: &str, expected: &str, actual: &str) -> Result<()> {
+    if !actual.eq_ignore_ascii_case(expected) {
+        bail!("{kind} mismatch: expected {expected}, got {actual}");
+    }
+    Ok(())
 }
 
 /// Runs the installer. `existing` is the folder the app was detected in, if

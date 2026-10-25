@@ -96,14 +96,21 @@ pub fn installed(app: &AppEntry, entries: &[UninstallEntry], state: &State) -> O
         Detect::Registry {
             display_name,
             version_regex,
+            exe,
         } => {
             let re = Regex::new(display_name).ok()?;
             let version_re = version_regex.as_deref().and_then(|p| Regex::new(p).ok());
             let entry = entries.iter().find(|e| re.is_match(&e.display_name))?;
-            let raw = entry.display_version.as_deref().unwrap_or("unknown");
-            let version = version_re
-                .and_then(|vr| version::capture(&vr, raw))
-                .unwrap_or_else(|| raw.to_owned());
+            let from_exe = exe
+                .as_deref()
+                .zip(entry.install_dir.as_deref())
+                .and_then(|(exe, dir)| file_version(&dir.join(exe)));
+            let version = from_exe.unwrap_or_else(|| {
+                let raw = entry.display_version.as_deref().unwrap_or("unknown");
+                version_re
+                    .and_then(|vr| version::capture(&vr, raw))
+                    .unwrap_or_else(|| raw.to_owned())
+            });
             Some(Installed {
                 version,
                 location: entry.install_dir.clone(),

@@ -57,6 +57,18 @@ pub enum Source {
     LastModified {
         url: String,
     },
+    /// Proton's `version.json` release feeds.
+    Proton {
+        url: String,
+        #[serde(default = "default_channel")]
+        channel: String,
+        /// Picks the file by its `Platform` in multi-platform feeds, e.g. "windows/x64".
+        #[serde(default)]
+        platform: Option<String>,
+        /// Download URL with `{version}`, for feeds whose `Url` is unversioned.
+        #[serde(default)]
+        url_template: Option<String>,
+    },
     Direct {
         url: String,
         #[serde(default = "default_direct_version")]
@@ -64,6 +76,10 @@ pub enum Source {
         #[serde(default)]
         sha256: Option<String>,
     },
+}
+
+fn default_channel() -> String {
+    "Stable".into()
 }
 
 fn default_direct_version() -> String {
@@ -112,6 +128,10 @@ pub enum Detect {
         display_name: String,
         #[serde(default)]
         version_regex: Option<String>,
+        /// Exe relative to the install folder whose embedded version is used
+        /// instead of DisplayVersion, for installers that leave it stale.
+        #[serde(default)]
+        exe: Option<String>,
     },
     /// Glob patterns for the app's exe, in priority order; the first match is
     /// the install, and zip/portable updates go into its folder.
@@ -156,12 +176,16 @@ fn parse(text: &str) -> Result<Catalog> {
                 patterns.extend(version_regex);
             }
             Source::Redirect { version_regex, .. } => patterns.push(version_regex),
-            Source::Manifest { .. } | Source::LastModified { .. } | Source::Direct { .. } => {}
+            Source::Manifest { .. }
+            | Source::LastModified { .. }
+            | Source::Proton { .. }
+            | Source::Direct { .. } => {}
         }
         match &app.detect {
             Detect::Registry {
                 display_name,
                 version_regex,
+                ..
             } => {
                 patterns.push(display_name);
                 patterns.extend(version_regex);

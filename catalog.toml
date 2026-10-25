@@ -20,6 +20,9 @@
 #                      follows redirects until the URL matches, e.g. .../x64/1.0.9265/Setup.exe
 #   type = "lastmodified"  url = "..."  version is the file's Last-Modified date (2026.10.15)
 #                      for downloads that publish no version number
+#   type = "proton"    url = "<proton.me/download/.../version.json>", channel = "Stable"?,
+#                      platform = "windows/x64"? (multi-platform feeds), url_template = "...{version}..."?
+#                      newest release in the channel, verified against the feed's SHA-512
 #   type = "direct"    url = "...", version = "..."?, sha256 = "..."?  (pinned; version defaults to "latest")
 #
 # [app.installer] — what to do with the downloaded file:
@@ -31,7 +34,9 @@
 #
 # [app.detect] — how to find the installed version (defaults to "managed"):
 #   type = "registry"  display_name = "<regex on Uninstall DisplayName>",
-#                      version_regex = "<optional, capture group 1 = version from DisplayVersion>"
+#                      version_regex = "<optional, capture group 1 = version from DisplayVersion>",
+#                      exe = "<optional exe in the install folder>": use its embedded version instead,
+#                      for installers that leave DisplayVersion stale
 #   type = "file"      paths = ['<glob for the exe>', ...]  first match wins; version is read
 #                      from the exe, and zip/portable updates go into that exe's folder
 #   type = "managed"   Restock records the version it installed (for zip/portable)
@@ -68,7 +73,8 @@ description = "Code editor (per-user install)"
 essential = true
 source = { type = "manifest", url = "https://update.code.visualstudio.com/api/update/win32-x64-user/stable/latest", version_key = "productVersion", sha256_key = "sha256hash" }
 installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/MERGETASKS=!runcode"] }
-detect = { type = "registry", display_name = '^Microsoft Visual Studio Code \(User\)$' }
+# Background updates replace Code.exe but leave the registry's DisplayVersion behind.
+detect = { type = "registry", display_name = '^Microsoft Visual Studio Code \(User\)$', exe = "Code.exe" }
 
 [[app]]
 id = "pyfa"
@@ -146,6 +152,34 @@ description = "Process Explorer, Process Monitor, Autoruns and friends (portable
 source = { type = "lastmodified", url = "https://download.sysinternals.com/files/SysinternalsSuite.zip" }
 # Flat zip of standalone tools. Close any running tools before updating.
 installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\Sysinternals' }
+
+[[app]]
+id = "proton-mail"
+name = "Proton Mail"
+description = "Mail desktop app (per-user install)"
+# Every release in the feed points at the same unversioned URL, so download the
+# versioned copy that matches the Stable entry's checksum.
+source = { type = "proton", url = "https://proton.me/download/mail/windows/version.json", url_template = "https://proton.me/download/mail/windows/{version}/ProtonMail-desktop.exe" }
+installer = { type = "exe", args = ["--silent"] }
+detect = { type = "registry", display_name = '^Proton Mail$' }
+
+[[app]]
+id = "proton-drive"
+name = "Proton Drive"
+description = "Drive sync app"
+source = { type = "proton", url = "https://proton.me/download/drive/windows/version.json" }
+# The feed's own SilentArguments.
+installer = { type = "exe", args = ["/quiet", "NoAppDataCleanup=1"] }
+detect = { type = "registry", display_name = '^Proton Drive$' }
+exit_codes = { "1602" = "the installation was cancelled", "1618" = "another installation is already in progress" }
+
+[[app]]
+id = "proton-drive-cli"
+name = "Proton Drive CLI"
+description = "proton-drive command-line client (portable)"
+source = { type = "proton", url = "https://proton.me/download/drive/cli/version.json", platform = "windows/x64" }
+# The exe's embedded version is Bun's, not the CLI's, so Restock tracks what it installed.
+installer = { type = "portable", dest = '%LOCALAPPDATA%\Programs\Proton\Drive CLI' }
 
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
