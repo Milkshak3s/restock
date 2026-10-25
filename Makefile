@@ -11,6 +11,9 @@
 #   make lint       clippy, warnings are errors
 #   make check      fmt-check + lint + test (run before committing)
 #   make clean      remove target/ and dist/
+#
+# Releases: set the version in Cargo.toml and push to the `release` branch;
+# .github/workflows/release.yml builds restock.exe and creates a draft GitHub Release.
 
 BIN  := restock.exe
 DIST := dist
