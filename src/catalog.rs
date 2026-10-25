@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{Context, Result, bail};
 use regex::{Captures, Regex};
@@ -23,6 +23,9 @@ pub struct AppEntry {
     /// The app keeps itself current, so Restock only installs it.
     #[serde(default)]
     pub self_updating: bool,
+    /// Installer exit code (as a string key) -> what it means, shown on failure.
+    #[serde(default)]
+    pub exit_codes: BTreeMap<String, String>,
     pub source: Source,
     pub installer: Installer,
     #[serde(default)]
@@ -137,6 +140,10 @@ fn parse(text: &str) -> Result<Catalog> {
     for app in &catalog.apps {
         if !ids.insert(app.id.as_str()) {
             bail!("duplicate app id `{}`", app.id);
+        }
+        for code in app.exit_codes.keys() {
+            code.parse::<i32>()
+                .with_context(|| format!("app `{}`: exit code `{code}` is not a number", app.id))?;
         }
         let mut patterns = Vec::new();
         match &app.source {

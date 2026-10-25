@@ -8,7 +8,7 @@ use crate::catalog::{AppEntry, Catalog};
 use crate::detect::Installed;
 use crate::source::{self, Release};
 use crate::state::State;
-use crate::{detect, install, version};
+use crate::{detect, install, log, version};
 
 const GOOD: Color32 = Color32::from_rgb(90, 180, 110);
 
@@ -180,6 +180,10 @@ impl RestockApp {
             } in jobs
             {
                 let status = |s: Status| notifier.send(Msg::Status(i, s));
+                log::write(format!(
+                    "{} {}: installing {} from {} (existing: {:?})",
+                    app.id, app.name, release.version, release.url, location
+                ));
                 let result = client
                     .as_ref()
                     .map_err(|e| anyhow::anyhow!("{e}"))
@@ -189,7 +193,7 @@ impl RestockApp {
                             status(Status::Working(p))
                         })?;
                         status(Status::Working("Installing…".into()));
-                        install::install(&app.installer, &file, location.as_deref())?;
+                        install::install(&app, &file, location.as_deref())?;
                         let _ = std::fs::remove_dir_all(&dir);
                         let mut state = State::load();
                         state
@@ -197,6 +201,10 @@ impl RestockApp {
                             .insert(app.id.clone(), release.version.clone());
                         state.save()
                     });
+                match &result {
+                    Ok(()) => log::write(format!("{}: done", app.id)),
+                    Err(e) => log::write(format!("{}: FAILED: {e:#}", app.id)),
+                }
                 status(match result {
                     Ok(()) => Status::Done(format!("Installed {}", release.version)),
                     Err(e) => Status::Failed(format!("{e:#}")),
@@ -347,7 +355,12 @@ fn status_cell(ui: &mut egui::Ui, row: &Row) {
         }
         Status::Failed(err) => {
             ui.colored_label(visuals.error_fg_color, "Failed")
-                .on_hover_text(err);
+                .on_hover_text(format!(
+                    "{err}
+
+Details: {}",
+                    log::path().display()
+                ));
         }
         Status::Idle => match row.action() {
             None => {

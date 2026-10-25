@@ -2,7 +2,10 @@
 
 mod catalog;
 mod detect;
+mod elevate;
 mod install;
+mod inuse;
+mod log;
 mod source;
 mod state;
 mod ui;

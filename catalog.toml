@@ -7,6 +7,8 @@
 #   description  optional one-liner
 #   essential    true = preselected by "Select essentials" on a fresh machine
 #   self_updating true = the app updates itself; Restock only installs it
+#   exit_codes   optional { "<code>" = "<meaning>" } shown when the installer fails; when it
+#                does, Restock also names programs holding files in the install folder open
 #
 # [app.source] — where the latest version comes from:
 #   type = "github"    repo = "owner/name", asset = "<regex on asset filename>",
@@ -133,6 +135,9 @@ description = "Screen recording and streaming"
 source = { type = "github", repo = "obsproject/obs-studio", asset = '^OBS-Studio-[\d.]+-Windows-x64-Installer\.exe$' }
 installer = { type = "exe", args = ["/S"] }
 detect = { type = "registry", display_name = '^OBS Studio$' }
+# The silent installer's own exit codes. 6 usually means the virtual camera DLL is
+# loaded by a browser or chat app that has listed webcams; quit those apps fully.
+exit_codes = { "3" = "Windows version not supported", "4" = "a required dependency is missing", "5" = "OBS is still running", "6" = "OBS files are in use by another app (usually the virtual camera)" }
 
 [[app]]
 id = "sysinternals"

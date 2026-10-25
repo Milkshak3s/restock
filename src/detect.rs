@@ -17,13 +17,38 @@ use crate::version;
 pub struct UninstallEntry {
     pub display_name: String,
     pub display_version: Option<String>,
+    pub install_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Installed {
     pub version: String,
-    /// Folder the app was found in, for apps detected by file.
+    /// Folder the app is installed in, when known.
     pub location: Option<PathBuf>,
+}
+
+/// `InstallLocation` when set, otherwise the folder of the uninstaller, which
+/// installers like OBS's leave as the only hint.
+fn install_dir(key: &RegKey) -> Option<PathBuf> {
+    let non_empty = |name: &str| {
+        key.get_value::<String, _>(name)
+            .ok()
+            .map(|v| v.trim().trim_matches('"').to_owned())
+            .filter(|v| !v.is_empty())
+    };
+    if let Some(location) = non_empty("InstallLocation") {
+        return Some(PathBuf::from(location));
+    }
+    let uninstall = key.get_value::<String, _>("UninstallString").ok()?;
+    let exe = match uninstall.trim().strip_prefix('"') {
+        Some(rest) => rest.split('"').next()?,
+        None => uninstall.trim(),
+    };
+    // msiexec-based uninstallers say nothing about the app's folder.
+    if !exe.to_ascii_lowercase().ends_with(".exe") || exe.to_ascii_lowercase().contains("msiexec") {
+        return None;
+    }
+    Some(Path::new(exe).parent()?.to_path_buf()).filter(|dir| dir.is_dir())
 }
 
 const UNINSTALL_KEYS: &[(winreg::HKEY, &str)] = &[
@@ -58,6 +83,7 @@ pub fn uninstall_entries() -> Vec<UninstallEntry> {
             entries.push(UninstallEntry {
                 display_name,
                 display_version: sub.get_value("DisplayVersion").ok(),
+                install_dir: install_dir(&sub),
             });
         }
     }
@@ -80,7 +106,7 @@ pub fn installed(app: &AppEntry, entries: &[UninstallEntry], state: &State) -> O
                 .unwrap_or_else(|| raw.to_owned());
             Some(Installed {
                 version,
-                location: None,
+                location: entry.install_dir.clone(),
             })
         }
         Detect::File { paths } => {
