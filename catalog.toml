@@ -181,6 +181,17 @@ source = { type = "proton", url = "https://proton.me/download/drive/cli/version.
 # The exe's embedded version is Bun's, not the CLI's, so Restock tracks what it installed.
 installer = { type = "portable", dest = '%LOCALAPPDATA%\Programs\Proton\Drive CLI' }
 
+[[app]]
+id = "craft-proton-sync"
+name = "Craft Proton Sync"
+description = "Two-way sync of the ArtCraft folder with Proton Drive (portable)"
+source = { type = "github", repo = "Milkshak3s/craft-proton-sync", asset = '^craft-proton-sync-[\d.]+-windows-x64-portable\.zip$' }
+# Not %LOCALAPPDATA%\craft-proton-sync: that's the app's own data folder.
+installer = { type = "zip", dest = '%LOCALAPPDATA%\Programs\craft-proton-sync', strip_root = true }
+# The exe has no embedded version yet, so this falls back to the version Restock
+# installed; it goes stale if the app's own updater replaces the exe.
+detect = { type = "file", paths = ['%LOCALAPPDATA%\Programs\craft-proton-sync\craft-proton-sync.exe'] }
+
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
 # id = "my-tool"

@@ -14,6 +14,9 @@ pub fn path() -> PathBuf {
 }
 
 pub fn write(line: impl AsRef<str>) {
+    if cfg!(test) {
+        return;
+    }
     let path = path();
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);

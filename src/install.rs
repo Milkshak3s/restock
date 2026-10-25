@@ -71,7 +71,7 @@ fn verify(kind: &str, expected: &str, actual: &str) -> Result<()> {
 
 /// Runs the installer. `existing` is the folder the app was detected in, if
 /// known: zip and portable apps are updated there instead of the catalog's
-/// `dest`, and for installers it's checked for locked files when they fail.
+/// `dest`. When anything fails, the target folder is checked for locked files.
 pub fn install(app: &AppEntry, file: &Path, existing: Option<&Path>) -> Result<()> {
     let dest = |configured: &str| {
         existing.map_or_else(|| PathBuf::from(expand_env(configured)), Path::to_path_buf)
@@ -91,19 +91,23 @@ pub fn install(app: &AppEntry, file: &Path, existing: Option<&Path>) -> Result<(
         Installer::Zip {
             dest: configured,
             strip_root,
-        } => return extract_zip(file, &dest(configured), *strip_root),
+        } => {
+            let dest = dest(configured);
+            return extract_zip(file, &dest, *strip_root).map_err(|e| explain_locked(e, &dest));
+        }
         Installer::Portable {
             dest: configured,
             file_name,
         } => {
             let dest = dest(configured);
-            fs::create_dir_all(&dest)?;
             let name = match file_name {
                 Some(name) => name.as_ref(),
                 None => file.file_name().context("download has no file name")?,
             };
-            fs::copy(file, dest.join(name))?;
-            return Ok(());
+            return fs::create_dir_all(&dest)
+                .and_then(|()| fs::copy(file, dest.join(name)))
+                .map(drop)
+                .map_err(|e| explain_locked(e.into(), &dest));
         }
     };
     match code {
@@ -120,18 +124,31 @@ fn installer_failed(app: &AppEntry, code: i32, install_dir: Option<&Path>) -> an
     if let Some(meaning) = app.exit_codes.get(&code.to_string()) {
         msg = format!("{msg}: {meaning}");
     }
-    if let Some(dir) = install_dir {
-        let programs = inuse::programs_using(dir);
-        log::write(format!("  programs using {}: {programs:?}", dir.display()));
-        if !programs.is_empty() {
-            msg = format!(
-                "{msg}. Files in {} are in use by: {}. Close them and retry",
-                dir.display(),
-                programs.join(", ")
-            );
-        }
+    if let Some(note) = install_dir.and_then(locked_by) {
+        msg = format!("{msg}. {note}");
     }
     anyhow::anyhow!(msg)
+}
+
+/// Adds which programs hold files in `dir` open to a failed zip/portable
+/// update, e.g. a tray app whose exe can't be overwritten while it runs.
+fn explain_locked(err: anyhow::Error, dir: &Path) -> anyhow::Error {
+    match locked_by(dir) {
+        Some(note) => err.context(note),
+        None => err,
+    }
+}
+
+fn locked_by(dir: &Path) -> Option<String> {
+    let programs = inuse::programs_using(dir);
+    log::write(format!("  programs using {}: {programs:?}", dir.display()));
+    (!programs.is_empty()).then(|| {
+        format!(
+            "Files in {} are in use by: {}. Close them and retry",
+            dir.display(),
+            programs.join(", ")
+        )
+    })
 }
 
 /// Runs the installer and returns its exit code. Installers whose manifest
@@ -242,6 +259,25 @@ mod tests {
         assert_eq!(known, "installer exited with code 6: OBS files are in use");
         let unknown = installer_failed(&app, 2, None).to_string();
         assert_eq!(unknown, "installer exited with code 2");
+    }
+
+    #[test]
+    fn locked_folder_errors_name_the_program() {
+        // This test's own exe is running, so its folder counts as locked.
+        let dir = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let text = format!(
+            "{:#}",
+            explain_locked(anyhow::anyhow!("Access is denied"), &dir)
+        );
+        assert!(text.starts_with("Files in "), "{text}");
+        assert!(
+            text.ends_with("Close them and retry: Access is denied"),
+            "{text}"
+        );
     }
 
     fn app_with(installer: Installer) -> AppEntry {
