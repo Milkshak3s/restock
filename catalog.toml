@@ -211,6 +211,18 @@ self_updating = true
 source = { type = "msstore", id = "9NP83LWLPZ9K" }
 detect = { type = "appx", family = "AppleInc.AppleDevices_nzyj5cx40ttqa" }
 
+[[app]]
+id = "1password"
+name = "1Password"
+description = "Password manager"
+essential = true
+self_updating = true
+# AgileBits' bootstrapper (not the Store listing, which would be a separate package). It installs
+# the MSIX package, which then updates itself, so the bootstrapper's own version is meaningless.
+source = { type = "direct", url = "https://downloads.1password.com/win/1PasswordSetup-latest.exe" }
+installer = { type = "exe", args = ["--silent"] }
+detect = { type = "appx", family = "Agilebits.1Password_amwd9z03whsfe" }
+
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
 # id = "my-tool"
