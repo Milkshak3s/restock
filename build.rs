@@ -14,6 +14,14 @@ fn main() {
     if std::env::var_os("CARGO_CFG_WINDOWS").is_some() {
         embed_manifest(new_manifest("Restock").requested_execution_level(level))
             .expect("unable to embed manifest");
+        // The exe's icon (Explorer, taskbar, and the MSI's shortcut) and its version resource.
+        winresource::WindowsResource::new()
+            .set_icon("assets/restock.ico")
+            .set("ProductName", "Restock")
+            .set("FileDescription", "Restock")
+            .compile()
+            .expect("unable to embed icon");
     }
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=assets/restock.ico");
 }

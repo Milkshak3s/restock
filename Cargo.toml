@@ -22,3 +22,4 @@ zip = "9.1.0"
 
 [build-dependencies]
 embed-manifest = "1.5.1"
+winresource = "0.1"

@@ -1,0 +1,53 @@
+<!--
+  Restock's MSI (WiX 5): a per-machine install to C:\Program Files\Restock\restock.exe with a
+  Start Menu shortcut. Each release's MSI upgrades the installed one in place (MajorUpgrade), which
+  is how Restock updates itself.
+
+  Build: wix build packaging/restock.wxs -arch x64 -d Version=<x.y.z> -d Exe=<path to restock.exe>
+         -o restock-<x.y.z>-windows-x64.msi
+
+  Never change the UpgradeCode: it is what ties every release's MSI to the ones before it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Restock"
+           Manufacturer="milkshak3s"
+           Version="$(Version)"
+           UpgradeCode="0A00E954-52FD-43F5-A1EC-18D985391D44"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <!-- Reinstalling the same version is allowed, so a broken install can be repaired by running
+         the MSI again. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Restock is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Restock is detected by its Uninstall entry; InstallLocation tells it where it lives. -->
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- Advertised shortcuts show a blank icon unless the MSI carries one. Taken from the exe;
+         the Id must end in .exe for Windows to read it. Also used for the Uninstall entry. -->
+    <Icon Id="restock.exe" SourceFile="$(Exe)" />
+    <Property Id="ARPPRODUCTICON" Value="restock.exe" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Restock" />
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <Component Directory="INSTALLFOLDER">
+        <File Id="RestockExe" Source="$(Exe)" Name="restock.exe" KeyPath="yes">
+          <!-- Advertised, so it lives in the exe's component and needs no registry key path. -->
+          <Shortcut Name="Restock"
+                    Description="Install and update my apps"
+                    Directory="ProgramMenuFolder"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="restock.exe"
+                    Advertise="yes" />
+        </File>
+      </Component>
+    </Feature>
+  </Package>
+</Wix>

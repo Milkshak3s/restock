@@ -8,7 +8,7 @@ use crate::catalog::{AppEntry, Catalog, Source};
 use crate::detect::Installed;
 use crate::source::{self, Release};
 use crate::state::State;
-use crate::{detect, install, log, version};
+use crate::{detect, install, log, selfupdate, version};
 
 const GOOD: Color32 = Color32::from_rgb(90, 180, 110);
 
@@ -17,6 +17,8 @@ enum Msg {
     Latest(usize, Result<Release, String>),
     Status(usize, Status),
     InstallFinished,
+    /// Restock handed its own update to msiexec and must close now.
+    Quit,
 }
 
 #[derive(Clone, PartialEq)]
@@ -147,7 +149,7 @@ impl RestockApp {
     }
 
     fn install_selected(&mut self) {
-        let jobs: Vec<Job> = self
+        let mut jobs: Vec<Job> = self
             .rows
             .iter()
             .enumerate()
@@ -164,6 +166,8 @@ impl RestockApp {
         if jobs.is_empty() {
             return;
         }
+        // Restock's own update goes last: updating the running copy closes it.
+        jobs.sort_by_key(|job| job.app.id == selfupdate::APP_ID);
         self.installing = true;
 
         let notifier = self.notifier.clone();
@@ -200,6 +204,15 @@ impl RestockApp {
                             let file = install::download(client, &release, &dir, |p| {
                                 status(Status::Working(p))
                             })?;
+                            if let Some(dir) = location.as_deref().filter(|dir| {
+                                app.id == selfupdate::APP_ID && selfupdate::is_running_from(dir)
+                            }) {
+                                status(Status::Working("Restarting to update…".into()));
+                                selfupdate::hand_off(&file, dir)?;
+                                log::write("restock: handed the update to msiexec, closing");
+                                notifier.send(Msg::Quit);
+                                return Ok(());
+                            }
                             status(Status::Working("Installing…".into()));
                             install::install(&app, &file, location.as_deref())?;
                             let _ = std::fs::remove_dir_all(&dir);
@@ -241,6 +254,10 @@ impl RestockApp {
                     self.rows[i].status = status;
                 }
                 Msg::InstallFinished => self.installing = false,
+                Msg::Quit => self
+                    .notifier
+                    .ctx
+                    .send_viewport_cmd(egui::ViewportCommand::Close),
             }
         }
     }

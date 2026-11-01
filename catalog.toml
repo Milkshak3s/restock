@@ -53,6 +53,17 @@
 #   type = "managed"   Restock records the version it installed (for zip/portable)
 
 [[app]]
+id = "restock"
+name = "Restock"
+description = "This app. Updating the installed copy closes it, runs the new MSI and reopens it"
+essential = true
+source = { type = "github", repo = "Milkshak3s/restock", asset = '^restock-[\d.]+-windows-x64\.msi$' }
+# Per-machine, to C:\Program Files\Restock (packaging/restock.wxs). Installing it from a dev build or
+# the portable exe is an ordinary MSI install; the installed copy updates itself (src/selfupdate.rs).
+installer = { type = "msi" }
+detect = { type = "registry", display_name = '^Restock$' }
+
+[[app]]
 id = "7zip"
 name = "7-Zip"
 description = "File archiver"

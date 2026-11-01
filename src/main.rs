@@ -6,6 +6,7 @@ mod elevate;
 mod install;
 mod inuse;
 mod log;
+mod selfupdate;
 mod source;
 mod state;
 mod ui;
@@ -19,7 +20,11 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([960.0, 600.0])
-            .with_min_inner_size([640.0, 360.0]),
+            .with_min_inner_size([640.0, 360.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+                    .expect("embedded icon.png is invalid"),
+            ),
         ..Default::default()
     };
     eframe::run_native(

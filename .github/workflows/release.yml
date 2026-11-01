@@ -1,8 +1,9 @@
 name: Release
 
 # Pushing to the `release` branch tests and builds Restock on Windows and creates the draft
-# GitHub Release "Restock v<version>", with the version from Cargo.toml. Publish the draft by
-# hand once it has been tried.
+# GitHub Release "Restock v<version>" (the MSI, the portable exe and SHA256SUMS.txt), with the
+# version from Cargo.toml. Publish the draft by hand once it has been tried: installed copies
+# update themselves from the latest published MSI.
 on:
   push:
     branches: [release]
@@ -37,7 +38,8 @@ jobs:
         shell: pwsh
         run: |
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
-          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "not a version: '$version'" }
+          # MSI versions are plain numbers, so no pre-release suffixes.
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "not an x.y.z version: '$version'" }
           "version=$version" >> $env:GITHUB_OUTPUT
       - name: Check
         run: |
@@ -51,10 +53,21 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/release/restock.exe "dist/restock-${{ steps.version.outputs.version }}-windows-x64.exe"
+      # WiX 5: v6 and later need a separate licence agreement accepted to build.
+      - name: Install WiX
+        run: dotnet tool install wix --version 5.0.2 --tool-path .wix
+      - name: MSI
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          .wix/wix build packaging/restock.wxs -arch x64 -d "Version=$version" -d "Exe=target/release/restock.exe" -o "dist/restock-$version-windows-x64.msi"
+          .wix/wix msi validate "dist/restock-$version-windows-x64.msi"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-x64
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.msi
           if-no-files-found: error
 
   release:
