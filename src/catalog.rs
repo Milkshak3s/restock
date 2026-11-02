@@ -59,6 +59,18 @@ pub enum Source {
     LastModified {
         url: String,
     },
+    /// A text or JSON page that names the latest version, for projects that
+    /// publish one alongside versioned download URLs.
+    Page {
+        url: String,
+        /// Capture group 1 = the version, matched against the page body.
+        version_regex: String,
+        /// Download URL with `{version}`.
+        url_template: String,
+        /// Checksum file URL with `{version}`: one bare hash, or `<hash>  <file>` lines.
+        #[serde(default)]
+        sha256_url: Option<String>,
+    },
     /// Proton's `version.json` release feeds.
     Proton {
         url: String,
@@ -126,6 +138,8 @@ pub enum Installer {
         #[serde(default)]
         file_name: Option<String>,
     },
+    /// An MSIX package, installed for the current user with Add-AppxPackage.
+    Msix,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -201,7 +215,9 @@ fn parse(text: &str) -> Result<Catalog> {
                 patterns.push(asset);
                 patterns.extend(version_regex);
             }
-            Source::Redirect { version_regex, .. } => patterns.push(version_regex),
+            Source::Redirect { version_regex, .. } | Source::Page { version_regex, .. } => {
+                patterns.push(version_regex);
+            }
             Source::Manifest { .. }
             | Source::LastModified { .. }
             | Source::Proton { .. }

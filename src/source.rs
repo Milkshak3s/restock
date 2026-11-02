@@ -100,6 +100,18 @@ pub fn resolve(client: &Client, source: &Source) -> Result<Release> {
             platform.as_deref(),
             url_template.as_deref(),
         ),
+        Source::Page {
+            url,
+            version_regex,
+            url_template,
+            sha256_url,
+        } => page_latest(
+            client,
+            url,
+            version_regex,
+            url_template,
+            sha256_url.as_deref(),
+        ),
         Source::LastModified { url } => {
             let resp = client.head(url).send()?.error_for_status()?;
             let header = resp
@@ -271,6 +283,58 @@ fn proton_release(
     })
 }
 
+/// Reads the version from a page, fills it into the download (and checksum)
+/// URL templates, and looks the download's SHA-256 up in the checksum file.
+fn page_latest(
+    client: &Client,
+    url: &str,
+    version_regex: &str,
+    url_template: &str,
+    sha256_url: Option<&str>,
+) -> Result<Release> {
+    let body = client.get(url).send()?.error_for_status()?.text()?;
+    let version = version::capture(&Regex::new(version_regex)?, &body)
+        .with_context(|| format!("`{version_regex}` did not match {url}"))?;
+    let download = url_template.replace("{version}", &version);
+    let file_name = file_name_from_url(&download);
+    let sha256 = match sha256_url {
+        Some(template) => {
+            let sums_url = template.replace("{version}", &version);
+            let sums = client.get(&sums_url).send()?.error_for_status()?.text()?;
+            let hash = checksum_for(&sums, &file_name)
+                .with_context(|| format!("no checksum for {file_name} in {sums_url}"))?;
+            Some(hash.to_owned())
+        }
+        None => None,
+    };
+    Ok(Release {
+        version,
+        url: download,
+        file_name,
+        sha256,
+        sha512: None,
+    })
+}
+
+/// Finds `file_name`'s hash in a checksum file: `<hash>  <file>` lines (as
+/// written by sha256sum), or a file holding just one bare hash.
+fn checksum_for<'a>(sums: &'a str, file_name: &str) -> Option<&'a str> {
+    let entries: Vec<(&str, Option<&str>)> = sums
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            Some((parts.next()?, parts.next()))
+        })
+        .collect();
+    match entries.as_slice() {
+        [(hash, None)] => Some(hash),
+        _ => entries
+            .iter()
+            .find(|(_, name)| name.map(|n| n.trim_start_matches('*')) == Some(file_name))
+            .map(|(hash, _)| *hash),
+    }
+}
+
 fn file_name_from_url(url: &str) -> String {
     url.split(['?', '#'])
         .next()
@@ -349,6 +413,20 @@ mod tests {
         let r = proton_release(&cli, "Stable", Some("windows/x64"), None).unwrap();
         assert_eq!(r.url, "https://p/cli/windows-x64/proton-drive.exe");
         assert!(proton_release(&cli, "Beta", None, None).is_err());
+    }
+
+    #[test]
+    fn finds_checksums_in_each_format() {
+        // nodejs.org SHASUMS256.txt, VideoLAN's .sha256, rustup's .sha256.
+        let node = "aaa  node-v26.13.0-x64.7z\nbbb  node-v26.13.0-x64.msi\n";
+        assert_eq!(checksum_for(node, "node-v26.13.0-x64.msi"), Some("bbb"));
+        assert_eq!(checksum_for(node, "node-v26.13.0-x86.msi"), None);
+        assert_eq!(
+            checksum_for("ccc *vlc-3.0.24-win64.exe\n", "vlc-3.0.24-win64.exe"),
+            Some("ccc")
+        );
+        assert_eq!(checksum_for("ddd\n", "rustup-init.exe"), Some("ddd"));
+        assert_eq!(checksum_for("", "x.exe"), None);
     }
 
     #[test]

@@ -90,6 +90,19 @@ pub fn install(app: &AppEntry, file: &Path, existing: Option<&Path>) -> Result<(
                 .args(args),
             !elevate::is_elevated(),
         )?,
+        // Per-user, like Store apps: an elevated Restock installs for its own user.
+        Installer::Msix => {
+            let path = file.to_string_lossy().replace('\'', "''");
+            run(
+                Command::new("powershell")
+                    .args(["-NoProfile", "-NonInteractive", "-Command"])
+                    .arg(format!(
+                        "$ErrorActionPreference = 'Stop'; Add-AppxPackage -Path '{path}'"
+                    ))
+                    .creation_flags(CREATE_NO_WINDOW),
+                false,
+            )?
+        }
         Installer::Zip {
             dest: configured,
             strip_root,

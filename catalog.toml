@@ -20,6 +20,10 @@
 #                      follows redirects until the URL matches, e.g. .../x64/1.0.9265/Setup.exe
 #   type = "lastmodified"  url = "..."  version is the file's Last-Modified date (2026.10.15)
 #                      for downloads that publish no version number
+#   type = "page"      url = "<text/JSON page naming the latest version>",
+#                      version_regex = "<capture group 1 = version from the page body>",
+#                      url_template = "...{version}...", sha256_url = "...{version}..."?
+#                      the checksum file is one bare hash or `<hash>  <file>` lines (sha256sum)
 #   type = "proton"    url = "<proton.me/download/.../version.json>", channel = "Stable"?,
 #                      platform = "windows/x64"? (multi-platform feeds), url_template = "...{version}..."?
 #                      newest release in the channel, verified against the feed's SHA-512
@@ -38,6 +42,7 @@
 #   type = "msi"       args = [...]                        run as msiexec /i <file> /qn /norestart <args>
 #   type = "zip"       dest = "%LOCALAPPDATA%\\Programs\\x", strip_root = true|false
 #   type = "portable"  dest = "...", file_name = "x.exe"?  copy a single file
+#   type = "msix"      Add-AppxPackage; per-user, like msstore apps (pair with detect "appx")
 #   %VARS% in dest are expanded from the environment.
 #
 # [app.detect] — how to find the installed version (defaults to "managed"):
@@ -233,6 +238,79 @@ self_updating = true
 source = { type = "direct", url = "https://downloads.1password.com/win/1PasswordSetup-latest.exe" }
 installer = { type = "exe", args = ["--silent"] }
 detect = { type = "appx", family = "Agilebits.1Password_amwd9z03whsfe" }
+
+[[app]]
+id = "git"
+name = "Git"
+description = "Git for Windows, with Git Bash"
+essential = true
+# Tags are v2.56.0.windows.4; the registry's DisplayVersion is the plain 2.56.0.
+source = { type = "github", repo = "git-for-windows/git", asset = '^Git-[\d.]+-64-bit\.exe$', version_regex = '^v(\d+\.\d+\.\d+)' }
+# Upgrades reuse the options chosen at the first install.
+installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCANCEL", "/SP-", "/CLOSEAPPLICATIONS"] }
+detect = { type = "registry", display_name = '^Git$' }
+
+[[app]]
+id = "rustup"
+name = "Rustup"
+description = "Rust toolchain installer (per-user, in ~/.cargo)"
+essential = true
+self_updating = true
+source = { type = "page", url = "https://static.rust-lang.org/rustup/release-stable.toml", version_regex = '(?m)^version = .([\d.]+)', url_template = "https://static.rust-lang.org/rustup/archive/{version}/x86_64-pc-windows-msvc/rustup-init.exe", sha256_url = "https://static.rust-lang.org/rustup/archive/{version}/x86_64-pc-windows-msvc/rustup-init.exe.sha256" }
+# Installs the stable toolchain. Without the MSVC build tools it installs Visual Studio's
+# (rustup's default answer). `rustup update` keeps rustup and the toolchains current.
+installer = { type = "exe", args = ["-y"] }
+detect = { type = "registry", display_name = '^Rustup' }
+
+[[app]]
+id = "nodejs"
+name = "Node.js"
+description = "JavaScript runtime and npm (current LTS line)"
+essential = true
+# index.json lists releases newest first; the first with an "lts" codename is the current LTS.
+source = { type = "page", url = "https://nodejs.org/dist/index.json", version_regex = '"version":"v([\d.]+)"[^}]*?"lts":"', url_template = "https://nodejs.org/dist/v{version}/node-v{version}-x64.msi", sha256_url = "https://nodejs.org/dist/v{version}/SHASUMS256.txt" }
+installer = { type = "msi" }
+detect = { type = "registry", display_name = '^Node\.js$' }
+
+[[app]]
+id = "python"
+name = "Python 3.13"
+description = "Python from the Microsoft Store (python, pip; one package per minor version)"
+essential = true
+self_updating = true
+source = { type = "msstore", id = "9PNRBTZXMB4Z" }
+detect = { type = "appx", family = "PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0" }
+
+[[app]]
+id = "claude"
+name = "Claude"
+description = "Claude desktop app"
+essential = true
+self_updating = true
+# The "latest" link on claude.ai is behind a browser check, so this is a pinned build (from
+# winget's Anthropic.Claude manifest); the app updates itself once installed.
+source = { type = "direct", url = "https://downloads.claude.ai/releases/win32/x64/2.42304.2/Claude-af65c0e384c1657459441aac3083c6e622789afe.msix", sha256 = "d737861f0da3175c6b663172af0e602494cd99ff1b350d57dae5910a49519fc9" }
+installer = { type = "msix" }
+detect = { type = "appx", family = "Claude_pzs8sxrjxfjjc" }
+
+[[app]]
+id = "docker-desktop"
+name = "Docker Desktop"
+description = "Containers (needs WSL 2)"
+self_updating = true
+source = { type = "direct", url = "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe" }
+# --accept-license accepts the Docker Subscription Service Agreement.
+installer = { type = "exe", args = ["install", "--quiet", "--accept-license"] }
+detect = { type = "registry", display_name = '^Docker Desktop$' }
+
+[[app]]
+id = "vlc"
+name = "VLC"
+description = "Media player"
+# VideoLAN's own update check: line 1 is the latest version.
+source = { type = "page", url = "https://update.videolan.org/vlc/status-win-x64", version_regex = '^([\d.]+)', url_template = "https://download.videolan.org/pub/videolan/vlc/{version}/win64/vlc-{version}-win64.exe", sha256_url = "https://download.videolan.org/pub/videolan/vlc/{version}/win64/vlc-{version}-win64.exe.sha256" }
+installer = { type = "exe", args = ["/L=1033", "/S"] }
+detect = { type = "registry", display_name = '^VLC media player$' }
 
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
