@@ -312,6 +312,15 @@ source = { type = "page", url = "https://update.videolan.org/vlc/status-win-x64"
 installer = { type = "exe", args = ["/L=1033", "/S"] }
 detect = { type = "registry", display_name = '^VLC media player$' }
 
+[[app]]
+id = "tailscale"
+name = "Tailscale"
+description = "Mesh VPN. Updating briefly drops the connection, including remote sessions over it"
+essential = true
+source = { type = "page", url = "https://pkgs.tailscale.com/stable/?mode=json", version_regex = '"MSIsVersion":\s*"([\d.]+)"', url_template = "https://pkgs.tailscale.com/stable/tailscale-setup-{version}-amd64.msi", sha256_url = "https://pkgs.tailscale.com/stable/tailscale-setup-{version}-amd64.msi.sha256" }
+installer = { type = "msi" }
+detect = { type = "registry", display_name = '^Tailscale$' }
+
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
 # id = "my-tool"
