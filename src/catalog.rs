@@ -270,6 +270,34 @@ mod tests {
     }
 
     #[test]
+    fn sandboxie_plus_tracks_only_the_plus_x64_build() {
+        let catalog = load().unwrap();
+        let app = catalog
+            .apps
+            .iter()
+            .find(|a| a.id == "sandboxie-plus")
+            .unwrap();
+        assert!(!app.essential);
+        assert!(!app.self_updating);
+
+        let Source::Github { asset, .. } = &app.source else {
+            panic!("expected a github source");
+        };
+        let asset = Regex::new(asset).unwrap();
+        assert!(asset.is_match("Sandboxie-Plus-x64-v1.16.4.exe"));
+        assert!(asset.is_match("Sandboxie-Plus-x64-v1.16.4a.exe"));
+        assert!(!asset.is_match("Sandboxie-Plus-ARM64-v1.16.4.exe"));
+        assert!(!asset.is_match("Sandboxie-Classic-x64-v5.71.4.exe"));
+
+        let Detect::Registry { display_name, .. } = &app.detect else {
+            panic!("expected registry detection");
+        };
+        let display_name = Regex::new(display_name).unwrap();
+        assert!(display_name.is_match("Sandboxie-Plus v1.16.4"));
+        assert!(!display_name.is_match("Sandboxie 5.71.4 (64-bit)"));
+    }
+
+    #[test]
     fn rejects_duplicate_ids() {
         let text = r#"
             [[app]]

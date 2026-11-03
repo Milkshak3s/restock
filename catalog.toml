@@ -321,6 +321,16 @@ source = { type = "page", url = "https://pkgs.tailscale.com/stable/?mode=json", 
 installer = { type = "msi" }
 detect = { type = "registry", display_name = '^Tailscale$' }
 
+[[app]]
+id = "sandboxie-plus"
+name = "Sandboxie-Plus"
+description = "Application sandbox. Updating stops anything running in a sandbox"
+# Hotfix letters are deliberately ignored in version comparison: 1.16.4a equals 1.16.4, so
+# Restock won't offer that hotfix. The asset regex still matches it, so resolving latest works.
+source = { type = "github", repo = "sandboxie-plus/Sandboxie", asset = '^Sandboxie-Plus-x64-v[\d.]+[a-z]?\.exe$' }
+installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"] }
+detect = { type = "registry", display_name = '^Sandboxie-Plus' }
+
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
 # id = "my-tool"
