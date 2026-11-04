@@ -407,6 +407,46 @@ mod tests {
     }
 
     #[test]
+    fn geforce_driver_is_optional_and_detects_only_the_display_driver() {
+        let catalog = load().unwrap();
+        let app = catalog
+            .apps
+            .iter()
+            .find(|a| a.id == "geforce-driver")
+            .unwrap();
+        // It only installs on some GPUs, so it's never preselected.
+        assert!(!app.essential);
+        assert!(!app.self_updating);
+
+        let Detect::Registry { display_name, .. } = &app.detect else {
+            panic!("expected registry detection");
+        };
+        let display_name = Regex::new(display_name).unwrap();
+        assert!(display_name.is_match("NVIDIA Graphics Driver 566.36"));
+        assert!(!display_name.is_match("NVIDIA HD Audio Driver 1.4.2.6"));
+        assert!(!display_name.is_match("NVIDIA PhysX System Software 9.23.1019"));
+        assert!(!display_name.is_match("NVIDIA app 11.0.1.189"));
+    }
+
+    #[test]
+    fn nvidia_app_only_installs_and_detects_only_itself() {
+        let catalog = load().unwrap();
+        let app = catalog.apps.iter().find(|a| a.id == "nvidia-app").unwrap();
+        assert!(!app.essential);
+        assert!(app.self_updating);
+
+        let Detect::Registry { display_name, .. } = &app.detect else {
+            panic!("expected registry detection");
+        };
+        let display_name = Regex::new(display_name).unwrap();
+        assert!(display_name.is_match("NVIDIA app 11.0.1.189"));
+        assert!(display_name.is_match("NVIDIA App 11.0.1.189"));
+        assert!(!display_name.is_match("NVIDIA Application Profiles"));
+        assert!(!display_name.is_match("NVIDIA GeForce Experience 3.28.0.417"));
+        assert!(!display_name.is_match("NVIDIA Graphics Driver 566.36"));
+    }
+
+    #[test]
     fn rejects_duplicate_ids() {
         let text = r#"
             [[app]]

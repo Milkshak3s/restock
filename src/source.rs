@@ -494,6 +494,57 @@ mod tests {
         );
     }
 
+    /// Runs a catalog app's page source over `body`: (version, download URL).
+    fn resolve_page(id: &str, body: &str) -> Option<(String, String)> {
+        let catalog = crate::catalog::load().unwrap();
+        let app = catalog.apps.iter().find(|a| a.id == id).unwrap();
+        let Source::Page {
+            version_regex,
+            url_template,
+            ..
+        } = &app.source
+        else {
+            panic!("expected a page source");
+        };
+        page_download(&Regex::new(version_regex).unwrap(), body, url_template)
+    }
+
+    #[test]
+    fn geforce_lookup_resolves_to_the_desktop_dch_package() {
+        // The response's shape as remembered; see UNVERIFIED in catalog.toml.
+        let lookup = r#"{"Success":"1","IDS":[{"downloadInfo":{"Success":"1","ID":"237728",
+            "Version":"566.36","IsBeta":"0","IsWHQL":"1","Name":"GeForce%20Game%20Ready%20Driver"}}]}"#;
+        assert_eq!(
+            resolve_page("geforce-driver", lookup),
+            Some((
+                "566.36".to_owned(),
+                "https://us.download.nvidia.com/Windows/566.36/566.36-desktop-win10-win11-64bit-international-dch-whql.exe"
+                    .to_owned()
+            ))
+        );
+        assert_eq!(
+            resolve_page("geforce-driver", r#"{"Success":"0","IDS":[]}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn nvidia_app_page_resolves_to_the_versioned_installer() {
+        let page = r#"<a href="https://us.download.nvidia.com/nvapp/client/11.0.1.189/NVIDIA_app_v11.0.1.189.exe">Download</a>"#;
+        assert_eq!(
+            resolve_page("nvidia-app", page),
+            Some((
+                "11.0.1.189".to_owned(),
+                "https://us.download.nvidia.com/nvapp/client/11.0.1.189/NVIDIA_app_v11.0.1.189.exe"
+                    .to_owned()
+            ))
+        );
+        assert_eq!(
+            resolve_page("nvidia-app", "<a href=\"/drivers\">Drivers</a>"),
+            None
+        );
+    }
+
     #[test]
     fn finds_checksums_in_each_format() {
         // nodejs.org SHASUMS256.txt, VideoLAN's .sha256, rustup's .sha256.

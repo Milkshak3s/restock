@@ -368,6 +368,34 @@ source = { type = "page", url = "https://sourceforge.net/projects/crystaldiskmar
 installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"] }
 detect = { type = "registry", display_name = '^CrystalDiskMark \d' }
 
+[[app]]
+id = "geforce-driver"
+name = "NVIDIA GeForce Game Ready Driver"
+description = "Desktop GeForce GPUs only. Updating blanks the screen briefly and may need a restart"
+# UNVERIFIED: written without network access. The lookup URL's parameters, its response format, the
+# file naming, the silent switches and the DisplayName are from memory; check them against a real
+# install. This is the lookup behind NVIDIA's driver search page: psid/pfid pick the GPU (120/929 is
+# meant to be an RTX 30 series card; one package covers every desktop GPU that driver branch supports),
+# osID=57 is 64-bit Windows 10, dch=1 the DCH package, and isWHQL=1 upCRD=0 the Game Ready WHQL line,
+# not Studio. Laptops need a different "-notebook-" package, and very old GPUs an older branch; on
+# those the installer should refuse to run. NVIDIA publishes no checksum file. The package may also
+# install the NVIDIA App.
+source = { type = "page", url = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup&psid=120&pfid=929&osID=57&languageCode=1033&beta=0&isWHQL=1&dltype=-1&dch=1&upCRD=0&qnf=0&sort1=0&numberOfResults=1", version_regex = '"Version"\s*:\s*"(\d+\.\d+)"', url_template = "https://us.download.nvidia.com/Windows/{version}/{version}-desktop-win10-win11-64bit-international-dch-whql.exe" }
+installer = { type = "exe", args = ["-s", "-noreboot", "-noeula"] }
+detect = { type = "registry", display_name = '^NVIDIA Graphics Driver\b' }
+
+[[app]]
+id = "nvidia-app"
+name = "NVIDIA App"
+description = "GeForce settings, driver updates and game recording (replaces GeForce Experience)"
+self_updating = true
+# UNVERIFIED: written without network access. The page's link format, the silent switches and the
+# DisplayName are from memory, and nvidia.com may refuse non-browser clients; check them against a
+# real install. NVIDIA publishes no checksum file.
+source = { type = "page", url = "https://www.nvidia.com/en-us/software/nvidia-app/", version_regex = 'nvapp/client/([\d.]+)/NVIDIA_app_v[\d.]+\.exe', url_template = "https://us.download.nvidia.com/nvapp/client/{version}/NVIDIA_app_v{version}.exe" }
+installer = { type = "exe", args = ["-s", "-noreboot", "-noeula"] }
+detect = { type = "registry", display_name = '(?i)^NVIDIA app\b' }
+
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
 # id = "my-tool"
