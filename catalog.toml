@@ -331,6 +331,17 @@ source = { type = "github", repo = "sandboxie-plus/Sandboxie", asset = '^Sandbox
 installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"] }
 detect = { type = "registry", display_name = '^Sandboxie-Plus' }
 
+[[app]]
+id = "factory"
+name = "Factory"
+description = "Software factory CLI (portable)"
+# UNVERIFIED: written without access to the repo's releases. The asset name follows restock's
+# release naming and the portable exe is an assumption; check both against a real release. A wrong
+# name fails with "no asset matching", and `portable` only copies the file, never runs it.
+source = { type = "github", repo = "Milkshak3s/factory", asset = '^factory-[\d.]+-windows-x64\.exe$' }
+# Not %LOCALAPPDATA%\factory: that's the app's own data folder (it keeps its worktrees there).
+installer = { type = "portable", dest = '%LOCALAPPDATA%\Programs\factory', file_name = "factory.exe" }
+
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
 # id = "my-tool"

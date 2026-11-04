@@ -298,6 +298,28 @@ mod tests {
     }
 
     #[test]
+    fn factory_is_a_portable_exe_outside_its_data_folder() {
+        let catalog = load().unwrap();
+        let app = catalog.apps.iter().find(|a| a.id == "factory").unwrap();
+        assert!(!app.essential);
+
+        let Source::Github { repo, asset, .. } = &app.source else {
+            panic!("expected a github source");
+        };
+        assert_eq!(repo, "Milkshak3s/factory");
+        let asset = Regex::new(asset).unwrap();
+        assert!(asset.is_match("factory-1.2.3-windows-x64.exe"));
+        assert!(!asset.is_match("factory-1.2.3-windows-x64.msi"));
+        assert!(!asset.is_match("factory-1.2.3-linux-x64"));
+
+        let Some(Installer::Portable { dest, file_name }) = &app.installer else {
+            panic!("expected a portable installer");
+        };
+        assert_eq!(dest, r"%LOCALAPPDATA%\Programs\factory");
+        assert_eq!(file_name.as_deref(), Some("factory.exe"));
+    }
+
+    #[test]
     fn rejects_duplicate_ids() {
         let text = r#"
             [[app]]
