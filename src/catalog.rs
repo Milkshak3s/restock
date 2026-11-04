@@ -320,6 +320,84 @@ mod tests {
     }
 
     #[test]
+    fn cpu_z_tracks_only_the_standard_english_setup() {
+        let catalog = load().unwrap();
+        let app = catalog.apps.iter().find(|a| a.id == "cpu-z").unwrap();
+        assert!(!app.essential);
+        assert!(!app.self_updating);
+
+        let Source::Page {
+            version_regex,
+            url_template,
+            ..
+        } = &app.source
+        else {
+            panic!("expected a page source");
+        };
+        let version = Regex::new(version_regex).unwrap();
+        let page = r#"<a href="https://download.cpuid.com/cpu-z/cpu-z_2.15-en.exe">SETUP</a>"#;
+        assert_eq!(
+            version.captures(page).map(|c| c[1].to_owned()).as_deref(),
+            Some("2.15")
+        );
+        assert!(!version.is_match("cpu-z_2.15-rog-en.exe"));
+        assert!(!version.is_match("cpu-z_2.15-en.zip"));
+        assert_eq!(
+            url_template.replace("{version}", "2.15"),
+            "https://download.cpuid.com/cpu-z/cpu-z_2.15-en.exe"
+        );
+
+        let Detect::Registry { display_name, .. } = &app.detect else {
+            panic!("expected registry detection");
+        };
+        let display_name = Regex::new(display_name).unwrap();
+        assert!(display_name.is_match("CPUID CPU-Z 2.15"));
+        assert!(!display_name.is_match("CPUID HWMonitor 1.55"));
+    }
+
+    #[test]
+    fn crystaldiskmark_tracks_only_the_standard_installer() {
+        let catalog = load().unwrap();
+        let app = catalog
+            .apps
+            .iter()
+            .find(|a| a.id == "crystaldiskmark")
+            .unwrap();
+        assert!(!app.essential);
+        assert!(!app.self_updating);
+
+        let Source::Redirect { url, version_regex } = &app.source else {
+            panic!("expected a redirect source");
+        };
+        let version = Regex::new(version_regex).unwrap();
+        // The starting URL must not match, or the redirects would never be followed.
+        assert!(!version.is_match(url));
+        let base = "https://downloads.sourceforge.net/project/crystaldiskmark";
+        let captured = |file: &str| {
+            version
+                .captures(&format!("{base}/{file}?ts=1&use_mirror=auto"))
+                .map(|c| c[1].to_owned())
+        };
+        assert_eq!(
+            captured("9.0.1/CrystalDiskMark9_0_1.exe").as_deref(),
+            Some("9.0.1")
+        );
+        assert_eq!(
+            captured("8.0.4/CrystalDiskMark8_0_4c.exe").as_deref(),
+            Some("8.0.4")
+        );
+        assert_eq!(captured("9.0.1/CrystalDiskMark9_0_1.zip"), None);
+        assert_eq!(captured("9.0.1/CrystalDiskMark9_0_1Shizuku.exe"), None);
+
+        let Detect::Registry { display_name, .. } = &app.detect else {
+            panic!("expected registry detection");
+        };
+        let display_name = Regex::new(display_name).unwrap();
+        assert!(display_name.is_match("CrystalDiskMark 9.0.1"));
+        assert!(!display_name.is_match("CrystalDiskInfo 9.7.0"));
+    }
+
+    #[test]
     fn rejects_duplicate_ids() {
         let text = r#"
             [[app]]

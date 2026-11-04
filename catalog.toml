@@ -342,6 +342,31 @@ source = { type = "github", repo = "Milkshak3s/factory", asset = '^factory-[\d.]
 # Not %LOCALAPPDATA%\factory: that's the app's own data folder (it keeps its worktrees there).
 installer = { type = "portable", dest = '%LOCALAPPDATA%\Programs\factory', file_name = "factory.exe" }
 
+[[app]]
+id = "cpu-z"
+name = "CPU-Z"
+description = "CPU, memory and motherboard information"
+# UNVERIFIED: written without network access. The page's link format, the download host, the Inno
+# Setup switches and the DisplayName are from memory; check them against a real install. CPUID
+# publishes no checksum file. The "-en.exe" suffix skips the branded builds (ROG, MSI, ...).
+source = { type = "page", url = "https://www.cpuid.com/softwares/cpu-z.html", version_regex = 'cpu-z_([\d.]+)-en\.exe', url_template = "https://download.cpuid.com/cpu-z/cpu-z_{version}-en.exe" }
+installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"] }
+detect = { type = "registry", display_name = '^CPUID CPU-Z \d' }
+
+[[app]]
+id = "crystaldiskmark"
+name = "CrystalDiskMark"
+description = "Disk benchmark"
+# UNVERIFIED: written without network access. The redirect chain, file naming, Inno Setup switches
+# and DisplayName are from memory; check them against a real install. SourceForge's "latest" link
+# names the version folder; file names use underscores (CrystalDiskMark9_0_1.exe), so a url_template
+# can't build them. Matching the plain installer name makes a themed edition (Shizuku, ...) or a zip
+# fail with "did not redirect to a versioned URL" rather than install the wrong build. Hotfix letters
+# are ignored in version comparison, as for Sandboxie-Plus.
+source = { type = "redirect", url = "https://sourceforge.net/projects/crystaldiskmark/files/latest/download", version_regex = '/crystaldiskmark/([\d.]+)[a-z]?/CrystalDiskMark\d+_\d+_\d+[a-z]?\.exe' }
+installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"] }
+detect = { type = "registry", display_name = '^CrystalDiskMark \d' }
+
 # Example: personal closed-source tool published with a tiny JSON manifest.
 # [[app]]
 # id = "my-tool"
