@@ -63,9 +63,10 @@ pub enum Source {
     /// publish one alongside versioned download URLs.
     Page {
         url: String,
-        /// Capture group 1 = the version, matched against the page body.
+        /// Capture group 1 = the version, matched against the page body. An
+        /// optional group named `file` fills `{file}` in `url_template`.
         version_regex: String,
-        /// Download URL with `{version}`.
+        /// Download URL with `{version}`, and `{file}` if the regex captures it.
         url_template: String,
         /// Checksum file URL with `{version}`: one bare hash, or `<hash>  <file>` lines.
         #[serde(default)]
@@ -309,7 +310,12 @@ mod tests {
         assert_eq!(repo, "Milkshak3s/factory");
         let asset = Regex::new(asset).unwrap();
         assert!(asset.is_match("factory-1.2.3-windows-x64.exe"));
+        assert!(asset.is_match("factory-v1.2.3-windows-amd64.exe"));
+        assert!(asset.is_match("factory_1.2.3_windows_x86_64.exe"));
+        assert!(asset.is_match("factory-windows-x64.exe"));
+        assert!(asset.is_match("factory.exe"));
         assert!(!asset.is_match("factory-1.2.3-windows-x64.msi"));
+        assert!(!asset.is_match("factory-1.2.3-windows-arm64.exe"));
         assert!(!asset.is_match("factory-1.2.3-linux-x64"));
 
         let Some(Installer::Portable { dest, file_name }) = &app.installer else {
@@ -366,16 +372,14 @@ mod tests {
         assert!(!app.essential);
         assert!(!app.self_updating);
 
-        let Source::Redirect { url, version_regex } = &app.source else {
-            panic!("expected a redirect source");
+        let Source::Page { version_regex, .. } = &app.source else {
+            panic!("expected a page source");
         };
         let version = Regex::new(version_regex).unwrap();
-        // The starting URL must not match, or the redirects would never be followed.
-        assert!(!version.is_match(url));
-        let base = "https://downloads.sourceforge.net/project/crystaldiskmark";
+        let base = "https://sourceforge.net/projects/crystaldiskmark/files";
         let captured = |file: &str| {
             version
-                .captures(&format!("{base}/{file}?ts=1&use_mirror=auto"))
+                .captures(&format!("<link>{base}/{file}/download</link>"))
                 .map(|c| c[1].to_owned())
         };
         assert_eq!(
@@ -385,6 +389,11 @@ mod tests {
         assert_eq!(
             captured("8.0.4/CrystalDiskMark8_0_4c.exe").as_deref(),
             Some("8.0.4")
+        );
+        // Hotfix folders keep their letter, since the download URL is built from it.
+        assert_eq!(
+            captured("8.0.4c/CrystalDiskMark8_0_4c.exe").as_deref(),
+            Some("8.0.4c")
         );
         assert_eq!(captured("9.0.1/CrystalDiskMark9_0_1.zip"), None);
         assert_eq!(captured("9.0.1/CrystalDiskMark9_0_1Shizuku.exe"), None);

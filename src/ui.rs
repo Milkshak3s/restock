@@ -130,13 +130,17 @@ impl RestockApp {
         for (i, row) in self.rows.iter_mut().enumerate() {
             row.latest = None;
             row.status = Status::Idle;
-            let (client, source, notifier) = (
+            let (client, id, source, notifier) = (
                 client.clone(),
+                row.app.id.clone(),
                 row.app.source.clone(),
                 self.notifier.clone(),
             );
             thread::spawn(move || {
                 let result = source::resolve(&client, &source).map_err(|e| format!("{e:#}"));
+                if let Err(e) = &result {
+                    log::write(format!("{id}: checking for the latest version failed: {e}"));
+                }
                 notifier.send(Msg::Latest(i, result));
             });
         }

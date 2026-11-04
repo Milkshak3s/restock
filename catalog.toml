@@ -335,10 +335,11 @@ detect = { type = "registry", display_name = '^Sandboxie-Plus' }
 id = "factory"
 name = "Factory"
 description = "Software factory CLI (portable)"
-# UNVERIFIED: written without access to the repo's releases. The asset name follows restock's
-# release naming and the portable exe is an assumption; check both against a real release. A wrong
-# name fails with "no asset matching", and `portable` only copies the file, never runs it.
-source = { type = "github", repo = "Milkshak3s/factory", asset = '^factory-[\d.]+-windows-x64\.exe$' }
+# UNVERIFIED: written without access to the repo's releases. The asset name is a guess that accepts
+# the usual spellings of a Windows x64 exe; check it against a real release. A wrong name fails with
+# "no asset matching ... (it has: ...)", a private repo or one with no published release with a 404,
+# and `portable` only copies the file, never runs it.
+source = { type = "github", repo = "Milkshak3s/factory", asset = '^factory(?:[-_]v?[\d.]+)?(?:[-_]windows(?:[-_](?:x64|amd64|x86_64))?)?\.exe$' }
 # Not %LOCALAPPDATA%\factory: that's the app's own data folder (it keeps its worktrees there).
 installer = { type = "portable", dest = '%LOCALAPPDATA%\Programs\factory', file_name = "factory.exe" }
 
@@ -357,13 +358,13 @@ detect = { type = "registry", display_name = '^CPUID CPU-Z \d' }
 id = "crystaldiskmark"
 name = "CrystalDiskMark"
 description = "Disk benchmark"
-# UNVERIFIED: written without network access. The redirect chain, file naming, Inno Setup switches
+# UNVERIFIED: written without network access. The feed's format, file naming, Inno Setup switches
 # and DisplayName are from memory; check them against a real install. SourceForge's "latest" link
-# names the version folder; file names use underscores (CrystalDiskMark9_0_1.exe), so a url_template
-# can't build them. Matching the plain installer name makes a themed edition (Shizuku, ...) or a zip
-# fail with "did not redirect to a versioned URL" rather than install the wrong build. Hotfix letters
-# are ignored in version comparison, as for Sandboxie-Plus.
-source = { type = "redirect", url = "https://sourceforge.net/projects/crystaldiskmark/files/latest/download", version_regex = '/crystaldiskmark/([\d.]+)[a-z]?/CrystalDiskMark\d+_\d+_\d+[a-z]?\.exe' }
+# serves whichever file it picks as the default, which may be a zip or a themed edition (Shizuku, ...),
+# so this reads the project's file feed (newest first) and takes the first plain installer. File names
+# use underscores (CrystalDiskMark9_0_1.exe) and may carry a hotfix letter, so the regex captures the
+# name for the URL. Hotfix letters are ignored in version comparison, as for Sandboxie-Plus.
+source = { type = "page", url = "https://sourceforge.net/projects/crystaldiskmark/rss?path=/", version_regex = '/crystaldiskmark/files/([\d.]+[a-z]?)/(?P<file>CrystalDiskMark\d+_\d+_\d+[a-z]?\.exe)/download', url_template = "https://downloads.sourceforge.net/project/crystaldiskmark/{version}/{file}" }
 installer = { type = "exe", args = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"] }
 detect = { type = "registry", display_name = '^CrystalDiskMark \d' }
 

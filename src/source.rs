@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 use regex::Regex;
 use reqwest::blocking::{Client, ClientBuilder};
 use reqwest::header::{LAST_MODIFIED, LOCATION};
+use reqwest::StatusCode;
 use reqwest::redirect::Policy;
 use serde::Deserialize;
 use serde_json::Value;
@@ -180,14 +181,28 @@ fn github_latest(
     if let Ok(token) = std::env::var("GITHUB_TOKEN") {
         req = req.bearer_auth(token);
     }
-    let release: GhRelease = req.send()?.error_for_status()?.json()?;
+    let resp = req.send()?;
+    if resp.status() == StatusCode::NOT_FOUND {
+        bail!(
+            "GitHub has no latest release for {repo} (HTTP 404): the repository is private, \
+             or it has no published release (drafts and pre-releases don't count)"
+        );
+    }
+    let release: GhRelease = resp.error_for_status()?.json()?;
 
     let asset_re = Regex::new(asset)?;
     let found = release
         .assets
-        .into_iter()
+        .iter()
         .find(|a| asset_re.is_match(&a.name))
-        .with_context(|| format!("no asset matching `{asset}` in {repo} {}", release.tag_name))?;
+        .with_context(|| {
+            let names: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+            format!(
+                "no asset matching `{asset}` in {repo} {} (it has: {})",
+                release.tag_name,
+                names.join(", ")
+            )
+        })?;
 
     let version = match version_regex {
         Some(pattern) => version::capture(&Regex::new(pattern)?, &release.tag_name)
@@ -197,8 +212,8 @@ fn github_latest(
 
     Ok(Release {
         version,
-        url: found.browser_download_url,
-        file_name: found.name,
+        url: found.browser_download_url.clone(),
+        file_name: found.name.clone(),
         sha256: found
             .digest
             .as_deref()
@@ -293,9 +308,8 @@ fn page_latest(
     sha256_url: Option<&str>,
 ) -> Result<Release> {
     let body = client.get(url).send()?.error_for_status()?.text()?;
-    let version = version::capture(&Regex::new(version_regex)?, &body)
+    let (version, download) = page_download(&Regex::new(version_regex)?, &body, url_template)
         .with_context(|| format!("`{version_regex}` did not match {url}"))?;
-    let download = url_template.replace("{version}", &version);
     let file_name = file_name_from_url(&download);
     let sha256 = match sha256_url {
         Some(template) => {
@@ -314,6 +328,19 @@ fn page_latest(
         sha256,
         sha512: None,
     })
+}
+
+/// The version (capture group 1) from the regex's first match in `body`, and
+/// the download URL: `url_template` with `{version}` and, if the regex has a
+/// `file` group, `{file}` filled in.
+fn page_download(re: &Regex, body: &str, url_template: &str) -> Option<(String, String)> {
+    let captures = re.captures(body)?;
+    let version = captures.get(1)?.as_str().to_owned();
+    let mut download = url_template.replace("{version}", &version);
+    if let Some(file) = captures.name("file") {
+        download = download.replace("{file}", file.as_str());
+    }
+    Some((version, download))
 }
 
 /// Finds `file_name`'s hash in a checksum file: `<hash>  <file>` lines (as
@@ -413,6 +440,58 @@ mod tests {
         let r = proton_release(&cli, "Stable", Some("windows/x64"), None).unwrap();
         assert_eq!(r.url, "https://p/cli/windows-x64/proton-drive.exe");
         assert!(proton_release(&cli, "Beta", None, None).is_err());
+    }
+
+    #[test]
+    fn page_fills_version_and_file_into_the_template() {
+        let re = Regex::new(r"v([\d.]+)/(?P<file>app_\d+\.exe)").unwrap();
+        assert_eq!(
+            page_download(&re, "see v1.2/app_12.exe", "https://x/{version}/{file}"),
+            Some(("1.2".to_owned(), "https://x/1.2/app_12.exe".to_owned()))
+        );
+        assert_eq!(page_download(&re, "nothing here", "https://x/{file}"), None);
+
+        // Regexes without a `file` group keep working, as for VLC.
+        let re = Regex::new(r"^([\d.]+)").unwrap();
+        assert_eq!(
+            page_download(&re, "3.0.24\n", "https://x/{version}.exe"),
+            Some(("3.0.24".to_owned(), "https://x/3.0.24.exe".to_owned()))
+        );
+    }
+
+    #[test]
+    fn crystaldiskmark_feed_resolves_to_the_newest_standard_installer() {
+        let catalog = crate::catalog::load().unwrap();
+        let app = catalog
+            .apps
+            .iter()
+            .find(|a| a.id == "crystaldiskmark")
+            .unwrap();
+        let Source::Page {
+            version_regex,
+            url_template,
+            ..
+        } = &app.source
+        else {
+            panic!("expected a page source");
+        };
+        let base = "https://sourceforge.net/projects/crystaldiskmark/files";
+        // Newest first, with other editions and older versions around the installer.
+        let feed = format!(
+            "<link>{base}/9.0.1/CrystalDiskMark9_0_1Shizuku.exe/download</link>\n\
+             <link>{base}/9.0.1/CrystalDiskMark9_0_1.zip/download</link>\n\
+             <link>{base}/9.0.1/CrystalDiskMark9_0_1.exe/download</link>\n\
+             <link>{base}/8.0.4/CrystalDiskMark8_0_4c.exe/download</link>\n"
+        );
+        let re = Regex::new(version_regex).unwrap();
+        assert_eq!(
+            page_download(&re, &feed, url_template),
+            Some((
+                "9.0.1".to_owned(),
+                "https://downloads.sourceforge.net/project/crystaldiskmark/9.0.1/CrystalDiskMark9_0_1.exe"
+                    .to_owned()
+            ))
+        );
     }
 
     #[test]
